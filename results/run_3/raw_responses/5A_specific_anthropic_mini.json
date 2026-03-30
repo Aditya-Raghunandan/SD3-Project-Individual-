@@ -1,0 +1,14 @@
+{
+  "run_number": 3,
+  "snippet_id": "5A",
+  "leakage_type": "imputation",
+  "has_leakage_ground_truth": true,
+  "difficulty": "easy-medium",
+  "prompt_type": "specific",
+  "provider": "anthropic_mini",
+  "model_name": "Claude 4.5 Haiku",
+  "model_id": "claude-haiku-4-5-20251001",
+  "status": "success",
+  "response": "# Data Leakage Found \u26a0\ufe0f\n\n## The Problem\n\nThis code contains **training data leakage**. The imputer is fit on the entire dataset (`X_imputed`) before the train-test split, which means:\n\n1. **Mean values are computed using test data**: The `imputer.fit_transform(X)` on line 11 calculates mean values from all 100% of the data, including what will later become the test set.\n\n2. **Test set statistics influence training**: When `X_train` is imputed using these global means, it's actually using information derived from the test set. This inflates performance metrics because the training data has been \"informed\" by the test set.\n\n3. **Unrealistic prediction scenario**: At inference time, you won't have access to future test data to compute means, so the model is trained under conditions that won't exist in production.\n\n## Why This Matters\n\n- The reported F1 score is **optimistically biased** and will likely be higher than real-world performance\n- The model hasn't truly learned to generalize to unseen data\n- Results are not reproducible in a real deployment scenario\n\n## The Fix\n\nFit the imputer **only on training data**, then apply it to both train and test sets:\n\n```python\nimport pandas as pd\nfrom sklearn.impute import SimpleImputer\nfrom sklearn.model_selection import train_test_split\nfrom sklearn.tree import DecisionTreeClassifier\nfrom sklearn.metrics import f1_score\n\ndf = pd.read_csv(\"credit.csv\")\nX = df.drop(\"default\", axis=1)\ny = df[\"default\"]\n\nX_train, X_test, y_train, y_test = train_test_split(\n    X, y, test_size=0.3, random_state=10\n)\n\n# Fit imputer ONLY on training data\nimputer = SimpleImputer(strategy=\"mean\")\nX_train_imputed = pd.DataFrame(\n    imputer.fit_transform(X_train), columns=X_train.columns\n)\n\n# Transform test data using training statistics\nX_test_imputed = pd.DataFrame(\n    imputer.transform(X_test), columns=X_test.columns\n)\n\nmodel = DecisionTreeClassifier(random_state=10)\nmodel.fit(X_train_imputed, y_train)\ny_pred = model.predict(X_test_imputed)\nprint(f\"F1 Score: {f1_score(y_test, y_pred):.4f}\")\n```\n\n**Key changes:**\n- Split before preprocessing \u2713\n- Fit imputer only on `X_train` \u2713\n- Use `transform()` (not `fit_transform()`) on `X_test` \u2713",
+  "timestamp": "2026-03-26T18:23:13.830192"
+}

@@ -1,0 +1,14 @@
+{
+  "run_number": 2,
+  "snippet_id": "8B",
+  "leakage_type": "temporal_clean",
+  "has_leakage_ground_truth": false,
+  "difficulty": "n/a",
+  "prompt_type": "specific",
+  "provider": "anthropic_mini",
+  "model_name": "Claude 4.5 Haiku",
+  "model_id": "claude-haiku-4-5-20251001",
+  "status": "success",
+  "response": "# Data Leakage Review\n\n## \u26a0\ufe0f **CRITICAL DATA LEAKAGE DETECTED**\n\nThe code contains **temporal data leakage** in the `moving_avg_7` feature.\n\n### Where the Leakage Occurs\n\nThe `moving_avg_7` feature (a 7-day moving average) is computed on the **entire dataset** before the train-test split:\n\n```python\ndf[\"moving_avg_7\"]  # Calculated on full df before splitting\nX_train, X_test = X.iloc[:split_index], X.iloc[split_index:]\n```\n\n### Why This Is a Problem\n\n1. **Forward-looking bias in training data**: Each training example's moving average includes information from future dates (up to 7 days ahead in some cases), depending on how the moving average was calculated.\n\n2. **Information asymmetry**: At prediction time on real future data, you won't have access to future values needed to compute `moving_avg_7`, but your model was trained on a version that did.\n\n3. **Inflated performance metrics**: The model appears more accurate than it will be in production because it learned patterns that depend on future information.\n\n### How to Fix It\n\nCalculate the moving average **after** the train-test split, or use only historically available data:\n\n```python\ndf = df.sort_values(\"date\")\nsplit_index = int(len(df) * 0.8)\n\n# Method 1: Calculate moving average AFTER splitting\nX_train_data = df.iloc[:split_index].copy()\nX_test_data = df.iloc[split_index:].copy()\n\nX_train_data[\"moving_avg_7\"] = X_train_data[\"close\"].rolling(window=7).mean()\nX_test_data[\"moving_avg_7\"] = X_test_data[\"close\"].rolling(window=7).mean()\n\nX_train = X_train_data[features]\nX_test = X_test_data[features]\ny_train = X_train_data[\"close\"]\ny_test = X_test_data[\"close\"]\n\n# Method 2: Use only past information (expanding window on train, expanding on test)\n# More complex but more realistic for time-series prediction\n```\n\n**Result**: Your MAE metric will likely increase, but it will be a true reflection of real-world performance.",
+  "timestamp": "2026-03-26T17:48:48.899267"
+}

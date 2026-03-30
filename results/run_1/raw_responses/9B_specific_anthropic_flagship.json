@@ -1,0 +1,14 @@
+{
+  "run_number": 1,
+  "snippet_id": "9B",
+  "leakage_type": "target_leakage_clean",
+  "has_leakage_ground_truth": false,
+  "difficulty": "n/a",
+  "prompt_type": "specific",
+  "provider": "anthropic_flagship",
+  "model_name": "Claude 4.6 Sonnet",
+  "model_id": "claude-sonnet-4-6",
+  "status": "success",
+  "response": "## Data Leakage Analysis\n\n**Verdict: No data leakage detected.**\n\nThis pipeline is clean. Here is a breakdown of why each potential leakage concern is addressed correctly.\n\n---\n\n### What the Code Does Right\n\n**1. Train/test split occurs before any learning**\n```python\nX_train, X_test, y_train, y_test = train_test_split(\n    X, y, test_size=0.2, random_state=42\n)\n```\nThe split happens before `model.fit()`, so the test set has no influence on training.\n\n**2. Model is fit exclusively on training data**\n```python\nmodel.fit(X_train, y_train)\n```\nNo test data touches the fitting step.\n\n**3. Features are structurally sound**\nThe four features used \u2014 `income`, `credit_score`, `loan_amount`, `employment_years` \u2014 are plausible pre-loan characteristics that would realistically be available at prediction time. None of them obviously encode the outcome (`defaulted`).\n\n**4. No preprocessing that could leak**\nThere is no scaling, imputation, or encoding applied. This is actually the most common source of leakage in pipelines, and its absence here eliminates that risk.\n\n---\n\n### What to Watch For If You Extend This Code\n\nThese aren't problems *now*, but they would become leakage issues if added incorrectly:\n\n| Addition | Leakage Risk | Safe Fix |\n|---|---|---|\n| `StandardScaler` or `MinMaxScaler` | Fitting scaler on all data before split | Fit scaler only on `X_train`, transform both |\n| Imputing missing values | Computing mean/median on full dataset | Use `sklearn.pipeline.Pipeline` to fit imputer on train only |\n| Target encoding | Encoding categories using `y` before split | Encode inside a pipeline with cross-validation |\n| Feature selection (e.g. SelectKBest) | Selecting features based on full dataset | Include in a `Pipeline` |\n\n---\n\n### Recommended Pattern for Future Extensions\n\nUsing `sklearn.pipeline.Pipeline` structurally prevents most of these mistakes:\n\n```python\nfrom sklearn.pipeline import Pipeline\nfrom sklearn.preprocessing import StandardScaler\n\npipeline = Pipeline([\n    (\"scaler\", StandardScaler()),   # fit only on train, applied to both\n    (\"model\", LogisticRegression(max_iter=1000))\n])\n\npipeline.fit(X_train, y_train)      # scaler sees only X_train\ny_pred = pipeline.predict(X_test)   # scaler transforms X_test using train stats\n```\n\nThis makes leakage-free preprocessing the default behavior rather than something you have to manually manage.",
+  "timestamp": "2026-03-26T17:01:38.511737"
+}

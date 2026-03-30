@@ -1,0 +1,14 @@
+{
+  "run_number": 1,
+  "snippet_id": "5B",
+  "leakage_type": "imputation_clean",
+  "has_leakage_ground_truth": false,
+  "difficulty": "n/a",
+  "prompt_type": "specific",
+  "provider": "anthropic_mini",
+  "model_name": "Claude 4.5 Haiku",
+  "model_id": "claude-haiku-4-5-20251001",
+  "status": "success",
+  "response": "# Data Leakage Review\n\n**VERDICT: This code is FREE of data leakage.**\n\n## Analysis\n\nThe code correctly handles the train-test split and imputation:\n\n### \u2705 Correct Practices\n\n1. **Train-test split happens first** (lines 8-10)\n   - Data is divided before any transformations\n   - This is the correct order\n\n2. **Imputer is fit only on training data** (line 13)\n   - `imputer.fit_transform(X_train)` computes mean statistics from training data only\n   - These learned statistics are never influenced by test data\n\n3. **Test data uses training statistics** (line 16)\n   - `imputer.transform(X_test)` applies the *already-fitted* imputer\n   - Test missing values are filled using training set means, not test set means\n   - This simulates real-world prediction where test statistics are unavailable\n\n4. **Model training is isolated** (lines 18-19)\n   - Model only sees training data\n   - Evaluation happens on held-out test data\n\n## Why This Matters\n\nIf the code had instead done:\n```python\nimputer = SimpleImputer(strategy=\"mean\")\nX_imputed = pd.DataFrame(imputer.fit_transform(X), columns=X.columns)  # \u274c FIT ON ALL DATA\nX_train, X_test = train_test_split(X_imputed, ...)  # Then split\n```\n\nThis would cause **data leakage** because test set means would influence imputation of the training set (and vice versa), making the model appear better than it would be in production.\n\n**Your code avoids this pitfall correctly.**",
+  "timestamp": "2026-03-26T16:40:25.357579"
+}

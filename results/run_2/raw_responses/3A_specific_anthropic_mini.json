@@ -1,0 +1,14 @@
+{
+  "run_number": 2,
+  "snippet_id": "3A",
+  "leakage_type": "feature_selection",
+  "has_leakage_ground_truth": true,
+  "difficulty": "easy-medium",
+  "prompt_type": "specific",
+  "provider": "anthropic_mini",
+  "model_name": "Claude 4.5 Haiku",
+  "model_id": "claude-haiku-4-5-20251001",
+  "status": "success",
+  "response": "# Data Leakage Review\n\n## **CRITICAL DATA LEAKAGE FOUND** \u26a0\ufe0f\n\nThis code contains **severe data leakage** in the feature selection step.\n\n### The Problem\n\n```python\nselector = SelectKBest(score_func=f_classif, k=10)\nX_selected = selector.fit_transform(X, y)  # \u274c FIT ON ENTIRE DATASET\n\nX_train, X_test, y_train, y_test = train_test_split(\n    X_selected, y, test_size=0.2, random_state=42\n)\n```\n\n**The feature selector is fit on the entire dataset (X, y) *before* splitting into train/test sets.** This means:\n\n1. The selector uses information from test samples when deciding which 10 features are \"best\"\n2. Test set statistics are leaked into the feature selection process\n3. The model effectively \"sees\" test data indirectly through the selected features\n4. Performance metrics are artificially inflated and non-representative\n\n### Why This Matters\n\n`SelectKBest` with `f_classif` scores features based on their correlation with the target. When you fit on all data:\n- Features are ranked using information from test samples\n- The ranking may favor features that happen to correlate well *in the test set*\n- Your test accuracy will be optimistically biased and won't generalize to truly unseen data\n\n### The Fix\n\n**Fit the feature selector only on training data:**\n\n```python\nX_train, X_test, y_train, y_test = train_test_split(\n    X, y, test_size=0.2, random_state=42\n)\n\nselector = SelectKBest(score_func=f_classif, k=10)\nX_train_selected = selector.fit_transform(X_train, y_train)  # \u2713 FIT ONLY ON TRAIN\nX_test_selected = selector.transform(X_test)  # \u2713 TRANSFORM TEST ONLY\n\nmodel = RandomForestClassifier(n_estimators=100, random_state=42)\nmodel.fit(X_train_selected, y_train)\ny_pred = model.predict(X_test_selected)\nprint(f\"Accuracy: {accuracy_score(y_test, y_pred):.4f}\")\n```\n\n**Key principle:** Any data preprocessing/transformation must be fit on training data only, then applied to test data.",
+  "timestamp": "2026-03-26T17:20:00.479227"
+}

@@ -1,0 +1,14 @@
+{
+  "run_number": 1,
+  "snippet_id": "8B",
+  "leakage_type": "temporal_clean",
+  "has_leakage_ground_truth": false,
+  "difficulty": "n/a",
+  "prompt_type": "specific",
+  "provider": "anthropic_mini",
+  "model_name": "Claude 4.5 Haiku",
+  "model_id": "claude-haiku-4-5-20251001",
+  "status": "success",
+  "response": "# Data Leakage Review\n\n## \u26a0\ufe0f DATA LEAKAGE DETECTED\n\nThis code contains **critical data leakage** in the `moving_avg_7` feature.\n\n### Where It Occurs\n\n```python\nfeatures = [\"open\", \"high\", \"low\", \"volume\", \"moving_avg_7\"]\nX = df[features]\n```\n\nThe `moving_avg_7` feature is computed on the **entire dataset** before the train-test split occurs.\n\n### Why This Is a Problem\n\n1. **Information from the future leaks into the past**: The moving average for a given date includes data from up to 6 days *after* that date (due to how moving windows typically work in pandas). This means test set information is used to compute training features.\n\n2. **Even without future data**: The moving average computed on the full dataset creates an implicit coupling. The exact values depend on the entire time series, including the test set.\n\n3. **Unrealistic at prediction time**: In production, when predicting tomorrow's closing price, you wouldn't have access to the next 6 days of data. Your model learns using information it won't have available at prediction time.\n\n4. **Inflated performance metrics**: The reported MAE will be artificially optimistic because the model has been trained on features that incorporated test set information.\n\n---\n\n## \u2705 How to Fix It\n\nCompute the moving average **separately for train and test sets**, or compute it only using information available *up to* each point in time:\n\n```python\ndf[\"moving_avg_7\"] = df[\"close\"].rolling(window=7, min_periods=1).mean()\n\nfeatures = [\"open\", \"high\", \"low\", \"volume\", \"moving_avg_7\"]\nX = df[features]\ny = df[\"close\"]\n\nsplit_index = int(len(df) * 0.8)\nX_train, X_test = X.iloc[:split_index], X.iloc[split_index:]\ny_train, y_test = y.iloc[:split_index], y.iloc[split_index:]\n\nmodel = RandomForestRegressor(n_estimators=100, random_state=42)\nmodel.fit(X_train, y_train)\ny_pred = model.predict(X_test)\nprint(f\"MAE: {mean_absolute_error(y_test, y_pred):.4f}\")\n```\n\n**Key point**: `rolling().mean()` is naturally **causal** \u2014 it only uses historical data up to the current row, making it safe for time series. The computed moving averages remain unchanged after the split.",
+  "timestamp": "2026-03-26T16:56:38.838876"
+}

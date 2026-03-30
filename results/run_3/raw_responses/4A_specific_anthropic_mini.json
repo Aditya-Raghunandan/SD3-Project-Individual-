@@ -1,0 +1,14 @@
+{
+  "run_number": 3,
+  "snippet_id": "4A",
+  "leakage_type": "imputation",
+  "has_leakage_ground_truth": true,
+  "difficulty": "easy-medium",
+  "prompt_type": "specific",
+  "provider": "anthropic_mini",
+  "model_name": "Claude 4.5 Haiku",
+  "model_id": "claude-haiku-4-5-20251001",
+  "status": "success",
+  "response": "# Data Leakage Review\n\n**CRITICAL DATA LEAKAGE FOUND** \u274c\n\n## The Problem\n\nThe code contains **severe data leakage** in the imputation step. Here's exactly where it occurs:\n\n```python\nX[\"age\"].fillna(X[\"age\"].mean(), inplace=True)\nX[\"blood_pressure\"].fillna(X[\"blood_pressure\"].median(), inplace=True)\nX[\"cholesterol\"].fillna(X[\"cholesterol\"].mean(), inplace=True)\n\nX_train, X_test, y_train, y_test = train_test_split(X, y, ...)\n```\n\n## Why This Is a Problem\n\n1. **Statistics computed on full dataset**: The mean/median are calculated using `X` (which contains both train AND test data) before the train-test split occurs.\n\n2. **Test set information leaks into training**: When these pre-computed statistics fill missing values in `X_train`, they've been influenced by patterns in `X_test`. This means:\n   - The training data has been implicitly informed about the test set's distribution\n   - The model evaluation becomes overly optimistic because the model has \"seen\" patterns from the test set\n\n3. **Unrealistic performance metrics**: The reported accuracy is artificially inflated and won't generalize to truly unseen data.\n\n## The Fix\n\nCompute imputation statistics **only from training data**, then apply them to both sets:\n\n```python\nimport pandas as pd\nfrom sklearn.model_selection import train_test_split\nfrom sklearn.linear_model import LogisticRegression\nfrom sklearn.metrics import accuracy_score\n\ndf = pd.read_csv(\"patients.csv\")\nX = df.drop(\"readmitted\", axis=1)\ny = df[\"readmitted\"]\n\nX_train, X_test, y_train, y_test = train_test_split(\n    X, y, test_size=0.2, random_state=42\n)\n\n# Compute statistics ONLY from training data\nage_mean = X_train[\"age\"].mean()\nbp_median = X_train[\"blood_pressure\"].median()\nchol_mean = X_train[\"cholesterol\"].mean()\n\n# Apply to both sets using the training statistics\nX_train[\"age\"].fillna(age_mean, inplace=True)\nX_train[\"blood_pressure\"].fillna(bp_median, inplace=True)\nX_train[\"cholesterol\"].fillna(chol_mean, inplace=True)\n\nX_test[\"age\"].fillna(age_mean, inplace=True)\nX_test[\"blood_pressure\"].fillna(bp_median, inplace=True)\nX_test[\"cholesterol\"].fillna(chol_mean, inplace=True)\n\nmodel = LogisticRegression(max_iter=1000)\nmodel.fit(X_train, y_train)\ny_pred = model.predict(X_test)\nprint(f\"Accuracy: {accuracy_score(y_test, y_pred):.4f}\")\n```\n\n**Better yet**, use scikit-learn's `SimpleImputer` with a proper pipeline to enforce this constraint automatically.",
+  "timestamp": "2026-03-26T18:18:01.585251"
+}

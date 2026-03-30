@@ -1,0 +1,14 @@
+{
+  "run_number": 1,
+  "snippet_id": "9A",
+  "leakage_type": "target_leakage",
+  "has_leakage_ground_truth": true,
+  "difficulty": "hard",
+  "prompt_type": "specific",
+  "provider": "anthropic_mini",
+  "model_name": "Claude 4.5 Haiku",
+  "model_id": "claude-haiku-4-5-20251001",
+  "status": "success",
+  "response": "# Data Leakage Review\n\n## \u26a0\ufe0f **CRITICAL DATA LEAKAGE DETECTED**\n\nThe feature **`collection_recovery_fee`** introduces severe data leakage.\n\n### Why This Is Leakage\n\nA collection recovery fee is a **post-default consequence** \u2014 it only appears on a loan's record *after* the borrower has already defaulted. This means:\n\n1. **Temporal ordering violation**: Information about the outcome (default) becomes available in the features before prediction time\n2. **Practical unavailability**: At the time you'd make a lending decision (before disbursing the loan), collection recovery fees don't exist yet\n3. **Target encoding**: The feature directly encodes information about whether a default occurred\n\n### Why This Is a Problem\n\n- **Artificially inflated performance**: The model appears more accurate than it actually is because it's using information that wouldn't be available in production\n- **Non-deployable model**: You cannot use this model to predict defaults on new loan applications, since you won't know the collection recovery fee until after a default happens\n- **False confidence**: Stakeholders may approve the model based on inflated accuracy metrics\n\n### The Fix\n\n```python\nfeatures = [\n    \"income\", \"credit_score\", \"loan_amount\",\n    \"employment_years\"\n    # Remove: \"collection_recovery_fee\"\n]\n```\n\nKeep only features that would be known at the time of making the lending decision (application time). Other features like income, credit score, and loan amount are available upfront.\n\n---\n\n**Note**: The train/test split itself is correctly implemented. The leakage comes from feature engineering choices, not the validation methodology.",
+  "timestamp": "2026-03-26T16:59:24.563743"
+}

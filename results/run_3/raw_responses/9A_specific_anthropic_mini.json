@@ -1,0 +1,14 @@
+{
+  "run_number": 3,
+  "snippet_id": "9A",
+  "leakage_type": "target_leakage",
+  "has_leakage_ground_truth": true,
+  "difficulty": "hard",
+  "prompt_type": "specific",
+  "provider": "anthropic_mini",
+  "model_name": "Claude 4.5 Haiku",
+  "model_id": "claude-haiku-4-5-20251001",
+  "status": "success",
+  "response": "# Data Leakage Review\n\n## **CRITICAL DATA LEAKAGE DETECTED**\n\nThis code contains **serious data leakage** through the `collection_recovery_fee` feature.\n\n### Where the Leakage Occurs\n\nThe feature `collection_recovery_fee` is included in the model training, but this variable is **causally downstream of the loan default event**. It only exists *because* a loan defaulted.\n\n### Why This Is a Problem\n\n1. **Temporal causality violation**: Collection recovery fees are incurred *after* a loan defaults. At prediction time (when deciding whether to approve a new loan), this information does not exist yet.\n\n2. **Information leakage**: The model learns to use information about whether collections occurred to predict default. In production, you won't have this information for loans you're trying to evaluate.\n\n3. **Unrealistic performance**: The model appears more accurate than it would be in real-world deployment, where you cannot use post-default information to predict defaults.\n\n### The Fix\n\nRemove `collection_recovery_fee` from the feature list:\n\n```python\nfeatures = [\n    \"income\", \"credit_score\", \"loan_amount\",\n    \"employment_years\"\n    # \"collection_recovery_fee\"  \u2190 REMOVE THIS\n]\n```\n\n### What Would Be Legitimate Features\n\nKeep only features available **before** a lending decision is made:\n- Income, credit score, loan amount, employment history (\u2713 legitimate)\n- Account age, payment history prior to this loan (\u2713 legitimate)\n- Collection fees from *past* loans (\u2713 could be legitimate if it reflects borrower behavior)\n\n**Bottom line**: This code will train a model that appears to work well but will perform significantly worse in production, making it unsuitable for actual lending decisions.",
+  "timestamp": "2026-03-26T18:44:37.213296"
+}

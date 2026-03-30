@@ -1,0 +1,14 @@
+{
+  "run_number": 2,
+  "snippet_id": "3A",
+  "leakage_type": "feature_selection",
+  "has_leakage_ground_truth": true,
+  "difficulty": "easy-medium",
+  "prompt_type": "specific",
+  "provider": "openai_flagship",
+  "model_name": "GPT-4o",
+  "model_id": "gpt-4o",
+  "status": "success",
+  "response": "This code does contain a form of data leakage. The issue arises from the use of `SelectKBest` feature selection before the train-test split. Here is a detailed explanation:\n\n1. **Feature Selection with `SelectKBest`:** \n   - The pipeline uses `SelectKBest` to select the top 10 features based on an ANOVA F-value (`f_classif`). This step is applied to the entire dataset (`X` and `y`) before splitting the data into training and test sets.\n   - This leads to data leakage because the feature selection process is using information from the entire dataset, including the test set. As a result, the features selected are influenced by the entire data distribution, which includes the information that should be held out for final evaluation.\n\n2. **Problem:** \n   - Since the test set data influences the selection of features, the pipeline might select features that have higher predictive power specifically on the test data due to random noise or particular characteristics of that data. This can result in an overestimation of model performance, as the model indirectly \"knows\" something about the test set.\n\n3. **Solution:** \n   - To prevent this kind of data leakage, the feature selection process should be performed using only the training data, rather than the entire dataset. Here is a corrected version of the code:\n\n```python\nimport pandas as pd\nfrom sklearn.feature_selection import SelectKBest, f_classif\nfrom sklearn.model_selection import train_test_split\nfrom sklearn.ensemble import RandomForestClassifier\nfrom sklearn.metrics import accuracy_score\n\n# Load data\ndf = pd.read_csv(\"medical.csv\")\nX = df.drop(\"diagnosis\", axis=1)\ny = df[\"diagnosis\"]\n\n# Split the data into training and test sets\nX_train, X_test, y_train, y_test = train_test_split(\n    X, y, test_size=0.2, random_state=42\n)\n\n# Feature selection on the training data only\nselector = SelectKBest(score_func=f_classif, k=10)\nX_train_selected = selector.fit_transform(X_train, y_train)\nX_test_selected = selector.transform(X_test)\n\n# Train the model\nmodel = RandomForestClassifier(n_estimators=100, random_state=42)\nmodel.fit(X_train_selected, y_train)\n\n# Predict and evaluate\ny_pred = model.predict(X_test_selected)\nprint(f\"Accuracy: {accuracy_score(y_test, y_pred):.4f}\")\n```\n\nBy performing feature selection only on the training data (`X_train` and `y_train`), and then applying the same selected features to the test data, we ensure that no information from the test data influences the selection of features, thus preventing data leakage.",
+  "timestamp": "2026-03-26T17:19:24.491889"
+}

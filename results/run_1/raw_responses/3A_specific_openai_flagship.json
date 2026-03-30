@@ -1,0 +1,14 @@
+{
+  "run_number": 1,
+  "snippet_id": "3A",
+  "leakage_type": "feature_selection",
+  "has_leakage_ground_truth": true,
+  "difficulty": "easy-medium",
+  "prompt_type": "specific",
+  "provider": "openai_flagship",
+  "model_name": "GPT-4o",
+  "model_id": "gpt-4o",
+  "status": "success",
+  "response": "The provided code contains a potential source of data leakage, which occurs during the feature selection step. Here's the problem:\n\n1. **Feature Selection**: The code performs feature selection using `SelectKBest` on the entire dataset (`X`) before splitting it into training and test sets. This means that the feature selection process has access to the entire dataset, including the test set labels (`y`). By selecting features based on information from the entire dataset, the model indirectly gains information about the test set during training. This can inflate the model's performance metrics because the selected features are optimized for the entire dataset, not just the training portion.\n\n2. **Leakage Consequence**: The leakage results in an overestimate of the model's actual performance on unseen data because the test set information is inadvertently used to select the best features, leading to a bias in the feature selection process.\n\nTo avoid this data leakage, the feature selection should be done within the cross-validation or the training data context only. The correct approach would involve:\n\n- Splitting the data into training and test sets first.\n- Performing feature selection using only the training data.\n- Applying the same feature transformation to the test data.\n\nHere's how you can modify the code to prevent leakage:\n\n```python\nimport pandas as pd\nfrom sklearn.feature_selection import SelectKBest, f_classif\nfrom sklearn.model_selection import train_test_split\nfrom sklearn.ensemble import RandomForestClassifier\nfrom sklearn.metrics import accuracy_score\n\ndf = pd.read_csv(\"medical.csv\")\nX = df.drop(\"diagnosis\", axis=1)\ny = df[\"diagnosis\"]\n\n# Split the data before feature selection\nX_train, X_test, y_train, y_test = train_test_split(\n    X, y, test_size=0.2, random_state=42\n)\n\n# Perform feature selection using only the training data\nselector = SelectKBest(score_func=f_classif, k=10)\nX_train_selected = selector.fit_transform(X_train, y_train)\nX_test_selected = selector.transform(X_test)  # Use the same transformation\n\nmodel = RandomForestClassifier(n_estimators=100, random_state=42)\nmodel.fit(X_train_selected, y_train)\ny_pred = model.predict(X_test_selected)\nprint(f\"Accuracy: {accuracy_score(y_test, y_pred):.4f}\")\n```\n\nBy altering the pipeline as shown, the feature selection process is applied only to the training data and then the transformation is applied to the test data, which should provide a more reliable evaluation of the model's performance.",
+  "timestamp": "2026-03-26T16:27:20.010582"
+}

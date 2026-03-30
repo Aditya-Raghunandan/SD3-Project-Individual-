@@ -1,0 +1,14 @@
+{
+  "run_number": 2,
+  "snippet_id": "9B",
+  "leakage_type": "target_leakage_clean",
+  "has_leakage_ground_truth": false,
+  "difficulty": "n/a",
+  "prompt_type": "specific",
+  "provider": "anthropic_mini",
+  "model_name": "Claude 4.5 Haiku",
+  "model_id": "claude-haiku-4-5-20251001",
+  "status": "success",
+  "response": "# Data Leakage Review\n\n## Verdict: **NO DATA LEAKAGE DETECTED**\n\nThis code is **free of data leakage**. Here's why:\n\n### \u2713 Correct Practices Observed\n\n1. **Train-test split occurs first**\n   - `train_test_split()` is called before any model training, properly separating the data\n\n2. **No preprocessing before split**\n   - Features are selected directly from the raw dataframe without any transformation, scaling, or imputation that could leak information\n\n3. **Model only sees training data**\n   - `model.fit(X_train, y_train)` uses only the training subset\n   - Evaluation uses the held-out `X_test` and `y_test`\n\n4. **No temporal or sequential leakage**\n   - The random split (with `random_state=42`) doesn't create leakage patterns that would occur in time-series data\n\n5. **Features appear appropriate**\n   - All features (income, credit_score, loan_amount, employment_years) would be available at prediction time for a new loan application\n   - None encode information about defaults that wouldn't be known beforehand\n\n---\n\n### \u26a0\ufe0f Minor Note (Not Leakage, But Best Practice)\n\nIf you were adding **preprocessing steps** (scaling, imputation, feature engineering, etc.), you'd need to fit those transformers **only on training data**:\n\n```python\nfrom sklearn.preprocessing import StandardScaler\nfrom sklearn.pipeline import Pipeline\n\n# Good: Scaler fits only on training data\nscaler = StandardScaler()\nX_train_scaled = scaler.fit_transform(X_train)\nX_test_scaled = scaler.transform(X_test)  # transform only\n```\n\nBut as written, the code has **no leakage issues**.",
+  "timestamp": "2026-03-26T17:53:39.000674"
+}

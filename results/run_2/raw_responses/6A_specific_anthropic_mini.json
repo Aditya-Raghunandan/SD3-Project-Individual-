@@ -1,0 +1,14 @@
+{
+  "run_number": 2,
+  "snippet_id": "6A",
+  "leakage_type": "cv_preprocessing",
+  "has_leakage_ground_truth": true,
+  "difficulty": "medium",
+  "prompt_type": "specific",
+  "provider": "anthropic_mini",
+  "model_name": "Claude 4.5 Haiku",
+  "model_id": "claude-haiku-4-5-20251001",
+  "status": "success",
+  "response": "# Data Leakage Review: **CRITICAL ISSUE FOUND**\n\n## The Problem\n\nThis code contains **serious data leakage** in the preprocessing step.\n\n### Where It Occurs\n\n```python\nscaler = StandardScaler()\nX_scaled = scaler.fit_transform(X)  # \u274c FIT on ALL data\n\nmodel = Ridge(alpha=1.0)\nscores = cross_val_score(model, X_scaled, y, cv=5)  # Then cross-validate\n```\n\nThe `StandardScaler` is **fit on the entire dataset** (`X`) before cross-validation begins.\n\n### Why It's a Problem\n\nWhen `cross_val_score` splits the data into train/test folds, the scaler has already \"seen\" and learned statistics (mean and standard deviation) from **all the data**, including the test folds. This means:\n\n1. **Test set information leaks into training**: The scaler's parameters were computed using statistics from test samples\n2. **Overly optimistic evaluation**: Cross-validation scores are inflated because the model benefits from information it shouldn't have access to\n3. **Poor real-world performance**: When you deploy this model on truly unseen data, performance will be worse than reported\n\n## The Solution\n\nFit the scaler **inside** the cross-validation loop so it only learns from training folds:\n\n```python\nfrom sklearn.pipeline import Pipeline\n\ndf = pd.read_csv(\"cars.csv\")\nX = df.drop(\"price\", axis=1)\ny = df[\"price\"]\n\n# Create a pipeline that fits scaler + model together\npipeline = Pipeline([\n    ('scaler', StandardScaler()),\n    ('model', Ridge(alpha=1.0))\n])\n\n# Now cross-validation is proper\nscores = cross_val_score(pipeline, X, y, cv=5, scoring=\"r2\")\nprint(f\"Mean R2: {scores.mean():.4f} (+/- {scores.std():.4f})\")\n```\n\nNow the scaler is fit **only on each fold's training set**, and evaluated **only on that fold's test set**\u2014no leakage.",
+  "timestamp": "2026-03-26T17:35:31.515580"
+}

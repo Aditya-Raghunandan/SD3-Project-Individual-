@@ -1,0 +1,14 @@
+{
+  "run_number": 1,
+  "snippet_id": "1A",
+  "leakage_type": "preprocessing",
+  "has_leakage_ground_truth": true,
+  "difficulty": "easy",
+  "prompt_type": "specific",
+  "provider": "anthropic_mini",
+  "model_name": "Claude 4.5 Haiku",
+  "model_id": "claude-haiku-4-5-20251001",
+  "status": "success",
+  "response": "# Data Leakage Review\n\n**CRITICAL DATA LEAKAGE FOUND**\n\n## The Problem\n\nThe `StandardScaler` is fit on the **entire dataset** (line 8) *before* the train-test split occurs (lines 10-13). This causes test set information to leak into the training process.\n\n```python\nscaler = StandardScaler()\nX_scaled = scaler.fit_transform(X)  # \u274c Fitted on ALL data, including test set\n\nX_train, X_test, y_train, y_test = train_test_split(...)\n```\n\n## Why This Is a Problem\n\n1. **Mean and standard deviation statistics** computed by `fit_transform()` include information from the test set\n2. When `X_test` is scaled, it's transformed using statistics that were partially derived from the test set itself\n3. The model effectively \"sees\" information about the test set during preprocessing, inflating performance metrics\n4. This violates the fundamental principle that the test set must be completely unseen during all training steps\n\n## The Fix\n\nFit the scaler **only on training data**, then apply it to both sets:\n\n```python\nX_train, X_test, y_train, y_test = train_test_split(\n    X, y, test_size=0.2, random_state=42\n)\n\nscaler = StandardScaler()\nX_train_scaled = scaler.fit_transform(X_train)  # \u2713 Fit only on training data\nX_test_scaled = scaler.transform(X_test)       # \u2713 Transform using training statistics\n\nmodel = LinearRegression()\nmodel.fit(X_train_scaled, y_train)\ny_pred = model.predict(X_test_scaled)\nprint(f\"MSE: {mean_squared_error(y_test, y_pred):.4f}\")\n```\n\n## Impact\n\nYour reported MSE will be **optimistically biased** (lower than true generalization error). The magnitude of bias depends on how different the test set distribution is from the training set.",
+  "timestamp": "2026-03-26T16:18:08.326579"
+}

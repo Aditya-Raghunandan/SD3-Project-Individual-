@@ -1,0 +1,14 @@
+{
+  "run_number": 3,
+  "snippet_id": "7A",
+  "leakage_type": "oversampling",
+  "has_leakage_ground_truth": true,
+  "difficulty": "medium-hard",
+  "prompt_type": "specific",
+  "provider": "anthropic_mini",
+  "model_name": "Claude 4.5 Haiku",
+  "model_id": "claude-haiku-4-5-20251001",
+  "status": "success",
+  "response": "# Data Leakage Review: **CRITICAL ISSUE FOUND**\n\n## The Problem\n\nThis code contains **severe data leakage**. SMOTE resampling is applied **before** the train-test split, which means:\n\n1. **SMOTE sees the entire dataset** (including test data) when generating synthetic minority samples\n2. **Synthetic samples created by SMOTE may be influenced by patterns in the test set**\n3. **Test set information leaks into training data** through the synthetic samples\n4. **Model evaluation is biased upward** because the test set has already influenced the training process\n\n## Why This Matters\n\nSMOTE fits a k-NN model on the data to generate synthetic samples. When you call `fit_resample(X, y)` on the full dataset before splitting:\n\n```python\n# \u274c WRONG: SMOTE learns from all data\nsmote = SMOTE(random_state=42)\nX_resampled, y_resampled = smote.fit_resample(X, y)  # Uses entire dataset\nX_train, X_test, y_train, y_test = train_test_split(X_resampled, y_resampled, ...)\n```\n\nThe synthetic minority samples are created based on neighbors found in the **entire** dataset, including the test set. This inflates performance metrics.\n\n## The Correct Approach\n\n```python\n# \u2705 CORRECT: Split first, then resample\nX_train, X_test, y_train, y_test = train_test_split(\n    X, y, test_size=0.2, random_state=42\n)\n\nsmote = SMOTE(random_state=42)\nX_train_resampled, y_train_resampled = smote.fit_resample(X_train, y_train)\n\nmodel = GradientBoostingClassifier(n_estimators=100, random_state=42)\nmodel.fit(X_train_resampled, y_train_resampled)\ny_pred = model.predict(X_test)\nprint(classification_report(y_test, y_pred))\n```\n\n**Key principle**: Any transformation learned from data (fitting SMOTE, scaling, encoding, etc.) must be fit **only on training data**, then applied to test data.",
+  "timestamp": "2026-03-26T18:33:29.901812"
+}

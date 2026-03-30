@@ -1,0 +1,14 @@
+{
+  "run_number": 1,
+  "snippet_id": "3A",
+  "leakage_type": "feature_selection",
+  "has_leakage_ground_truth": true,
+  "difficulty": "easy-medium",
+  "prompt_type": "specific",
+  "provider": "anthropic_mini",
+  "model_name": "Claude 4.5 Haiku",
+  "model_id": "claude-haiku-4-5-20251001",
+  "status": "success",
+  "response": "# Data Leakage Detected\n\nYes, this code contains **significant data leakage**. Here's where and why:\n\n## The Problem\n\n```python\nselector = SelectKBest(score_func=f_classif, k=10)\nX_selected = selector.fit_transform(X, y)  # \u274c FIT ON ENTIRE DATASET\n\nX_train, X_test, y_train, y_test = train_test_split(\n    X_selected, y, test_size=0.2, random_state=42\n)\n```\n\nThe `SelectKBest` selector is **fit on the entire dataset (`X` and `y`)** before the train-test split. This means:\n\n1. **Information from the test set leaks into feature selection**: The selector sees all data when deciding which 10 features are \"best,\" including test samples\n2. **The test set influences which features are chosen**: Features are selected based on their correlation with the target across the entire dataset, not just the training set\n3. **Performance is artificially inflated**: The model gets to use features that were chosen with knowledge of the test set's characteristics\n\n## Why This Is a Problem\n\nIn production, you won't know what the test data looks like when selecting features. Your reported accuracy of ~0.XXXX is **optimistically biased** and likely higher than real-world performance would be.\n\n## The Fix\n\nFit the feature selector **only on the training data**:\n\n```python\nimport pandas as pd\nfrom sklearn.feature_selection import SelectKBest, f_classif\nfrom sklearn.model_selection import train_test_split\nfrom sklearn.ensemble import RandomForestClassifier\nfrom sklearn.metrics import accuracy_score\n\ndf = pd.read_csv(\"medical.csv\")\nX = df.drop(\"diagnosis\", axis=1)\ny = df[\"diagnosis\"]\n\nX_train, X_test, y_train, y_test = train_test_split(\n    X, y, test_size=0.2, random_state=42\n)\n\nselector = SelectKBest(score_func=f_classif, k=10)\nX_train_selected = selector.fit_transform(X_train, y_train)  # \u2705 FIT ONLY ON TRAINING\nX_test_selected = selector.transform(X_test)                 # \u2705 TRANSFORM TEST\n\nmodel = RandomForestClassifier(n_estimators=100, random_state=42)\nmodel.fit(X_train_selected, y_train)\ny_pred = model.predict(X_test_selected)\nprint(f\"Accuracy: {accuracy_score(y_test, y_pred):.4f}\")\n```\n\n**Key change**: Split first, then fit the selector only on training data, then transform both sets with the fitted selector.",
+  "timestamp": "2026-03-26T16:27:52.390403"
+}

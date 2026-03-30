@@ -1,0 +1,14 @@
+{
+  "run_number": 2,
+  "snippet_id": "7A",
+  "leakage_type": "oversampling",
+  "has_leakage_ground_truth": true,
+  "difficulty": "medium-hard",
+  "prompt_type": "specific",
+  "provider": "anthropic_mini",
+  "model_name": "Claude 4.5 Haiku",
+  "model_id": "claude-haiku-4-5-20251001",
+  "status": "success",
+  "response": "# Data Leakage Review: **CRITICAL ISSUE FOUND**\n\n## Problem: SMOTE Applied Before Train-Test Split\n\nThis code contains **significant data leakage**. Here's exactly where and why:\n\n### The Leakage\n\n```python\nsmote = SMOTE(random_state=42)\nX_resampled, y_resampled = smote.fit_resample(X, y)  # \u274c Applied to ALL data\n\nX_train, X_test, y_train, y_test = train_test_split(\n    X_resampled, y_resampled, test_size=0.2, random_state=42\n)\n```\n\n**The issue:** SMOTE is fit on the entire dataset (`X, y`) *before* splitting into train/test. This means:\n\n1. **Synthetic samples are generated using information from the test set** \u2014 SMOTE uses k-nearest neighbors on all data points to create synthetic minority samples, so test set samples influence which synthetic samples are created\n2. **Test set statistics leak into training data** \u2014 The nearest neighbors of training samples may include test samples, directly encoding test set information into the synthetic training data\n3. **Performance metrics are artificially inflated** \u2014 The model is tested on data whose distribution was partially shaped by the test set itself\n\n### Why This Is a Problem\n\n- Your model gets an unfair advantage on test data\n- Cross-validation or real-world predictions on truly new data will likely perform worse\n- You cannot trust your reported `classification_report` metrics \u2014 they're optimistically biased\n\n### Correct Implementation\n\n```python\nX_train, X_test, y_train, y_test = train_test_split(\n    X, y, test_size=0.2, random_state=42\n)\n\n# \u2705 Apply SMOTE ONLY to training data\nsmote = SMOTE(random_state=42)\nX_train_resampled, y_train_resampled = smote.fit_resample(X_train, y_train)\n\nmodel = GradientBoostingClassifier(n_estimators=100, random_state=42)\nmodel.fit(X_train_resampled, y_train_resampled)\ny_pred = model.predict(X_test)\nprint(classification_report(y_test, y_pred))\n```\n\n**Key principle:** Any data preprocessing that learns parameters from data (SMOTE, scaling, feature selection, etc.) must be fit *only* on the training set.",
+  "timestamp": "2026-03-26T17:40:48.603814"
+}

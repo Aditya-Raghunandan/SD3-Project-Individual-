@@ -1,0 +1,14 @@
+{
+  "run_number": 3,
+  "snippet_id": "8B",
+  "leakage_type": "temporal_clean",
+  "has_leakage_ground_truth": false,
+  "difficulty": "n/a",
+  "prompt_type": "specific",
+  "provider": "anthropic_mini",
+  "model_name": "Claude 4.5 Haiku",
+  "model_id": "claude-haiku-4-5-20251001",
+  "status": "success",
+  "response": "# Data Leakage Review\n\n## **CRITICAL DATA LEAKAGE FOUND**\n\nThis code contains **data leakage** in the feature engineering step. Here's the problem:\n\n### The Issue: `moving_avg_7`\n\nThe `moving_avg_7` feature (a 7-day moving average) is computed on the **entire dataset** before the train-test split:\n\n```python\ndf[\"moving_avg_7\"]  # \u2190 computed on full df before splitting\nX = df[features]\nsplit_index = int(len(df) * 0.8)\nX_train, X_test = X.iloc[:split_index], X.iloc[split_index:]\n```\n\n**Why this is leakage:**\n\nFor any test sample at position `t`, its 7-day moving average includes information from up to **7 days into the future** (relative to that point). This means:\n\n1. **Test data information enters training**: The moving average values in `X_test` were computed using data from the entire dataset, including future prices beyond the test period.\n\n2. **Unavailable at prediction time**: In a real production scenario, you cannot compute a 7-day moving average for a date without having the next 7 days of data. You'd only have historical data available.\n\n3. **Inflated performance**: The model learns to exploit future information, producing unrealistically optimistic evaluation metrics.\n\n### How to Fix It\n\nCompute `moving_avg_7` **after** the train-test split:\n\n```python\n# Create features BEFORE splitting\ndf[\"date\"] = pd.to_datetime(df[\"date\"])\ndf = df.sort_values(\"date\")\n\nsplit_index = int(len(df) * 0.8)\ndf_train = df.iloc[:split_index].copy()\ndf_test = df.iloc[split_index:].copy()\n\n# Compute moving average separately for train and test\ndf_train[\"moving_avg_7\"] = df_train[\"close\"].rolling(window=7, min_periods=1).mean()\ndf_test[\"moving_avg_7\"] = df_test[\"close\"].rolling(window=7, min_periods=1).mean()\n\nfeatures = [\"open\", \"high\", \"low\", \"volume\", \"moving_avg_7\"]\nX_train = df_train[features]\nX_test = df_test[features]\ny_train = df_train[\"close\"]\ny_test = df_test[\"close\"]\n\nmodel = RandomForestRegressor(n_estimators=100, random_state=42)\nmodel.fit(X_train, y_train)\ny_pred = model.predict(X_test)\nprint(f\"MAE: {mean_absolute_error(y_test, y_pred):.4f}\")\n```\n\nThis ensures each moving average only uses data available up to that point in time.",
+  "timestamp": "2026-03-26T18:41:48.689421"
+}

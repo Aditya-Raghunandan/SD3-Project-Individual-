@@ -1,0 +1,14 @@
+{
+  "run_number": 2,
+  "snippet_id": "9B",
+  "leakage_type": "target_leakage_clean",
+  "has_leakage_ground_truth": false,
+  "difficulty": "n/a",
+  "prompt_type": "specific",
+  "provider": "anthropic_flagship",
+  "model_name": "Claude 4.6 Sonnet",
+  "model_id": "claude-sonnet-4-6",
+  "status": "success",
+  "response": "## Data Leakage Analysis\n\n**Verdict: No data leakage detected in this code.**\n\nThis pipeline follows correct machine learning practices. Here is a breakdown of why each potential leakage point is handled properly.\n\n---\n\n### What the Code Does Correctly\n\n**1. Train/Test Split Before Any Fitting**\n```python\nX_train, X_test, y_train, y_test = train_test_split(\n    X, y, test_size=0.2, random_state=42\n)\n```\nThe split happens before any model training or data transformation. The test set is isolated immediately and correctly.\n\n**2. Model Fitted Only on Training Data**\n```python\nmodel.fit(X_train, y_train)  # Only sees training data\n```\nThe model learns parameters exclusively from `X_train` and `y_train`. No test data influences the model's internal state.\n\n**3. Test Set Used Only for Evaluation**\n```python\ny_pred = model.predict(X_test)\nprint(f\"Accuracy: {accuracy_score(y_test, y_pred):.4f}\")\n```\n`X_test` is only used for generating predictions, and `y_test` only for scoring. Neither feeds back into training.\n\n**4. Features Are Appropriate**\nThe selected features (`income`, `credit_score`, `loan_amount`, `employment_years`) are all characteristics knowable *at the time a loan application is made*, so they do not encode future information about the outcome.\n\n---\n\n### What to Watch For If the Code Evolves\n\nWhile this code is clean, common leakage patterns to guard against in future iterations include:\n\n```python\n# BAD: Fitting a scaler on all data before splitting\nscaler = StandardScaler()\nX_scaled = scaler.fit_transform(X)          # Leaks test stats into training\nX_train, X_test = train_test_split(X_scaled, ...)\n\n# GOOD: Fit only on training data\nscaler.fit(X_train)\nX_train_scaled = scaler.transform(X_train)\nX_test_scaled  = scaler.transform(X_test)   # Uses training statistics only\n\n# BAD: Target-encoded feature computed on full dataset\ndf[\"risk_score\"] = df.groupby(\"zip_code\")[\"defaulted\"].transform(\"mean\")\n\n# BAD: A feature that could only exist after the outcome\nfeatures = [..., \"collections_reported\"]  # If this is post-default data\n```\n\n---\n\n### Summary\n\n| Check | Status |\n|---|---|\n| Split before fitting | \u2705 Correct |\n| Model trained only on train set | \u2705 Correct |\n| No preprocessing fitted on full data | \u2705 No preprocessing present |\n| Features available at prediction time | \u2705 Appropriate features |\n| No target-derived features | \u2705 None present |\n\nThe code is a straightforward, correctly structured baseline pipeline with no data leakage.",
+  "timestamp": "2026-03-26T17:53:33.441933"
+}

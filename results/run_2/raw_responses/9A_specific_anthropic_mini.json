@@ -1,0 +1,14 @@
+{
+  "run_number": 2,
+  "snippet_id": "9A",
+  "leakage_type": "target_leakage",
+  "has_leakage_ground_truth": true,
+  "difficulty": "hard",
+  "prompt_type": "specific",
+  "provider": "anthropic_mini",
+  "model_name": "Claude 4.5 Haiku",
+  "model_id": "claude-haiku-4-5-20251001",
+  "status": "success",
+  "response": "# Data Leakage Review\n\n## **CRITICAL DATA LEAKAGE DETECTED** \u26a0\ufe0f\n\n### **The Problem**\n\nThe feature `\"collection_recovery_fee\"` contains **target leakage**. This feature encodes information about the target variable that would not be available at prediction time.\n\n### **Why This is Leakage**\n\n- **Collection recovery fees** are fees charged *after* a loan has defaulted and the lender attempts to recover the debt\n- This fee only exists if a loan has already defaulted\n- At the time you're trying to predict whether a loan will default (before issuing it), this fee value would be **unknown or zero**\n- The model learns a spurious relationship: high collection fees \u2192 defaulted loan, but this relationship is circular (the fee *depends on* the default, not vice versa)\n\n### **The Consequence**\n\nThe model will appear to perform unrealistically well on test data because it's using information that leaks the target. When deployed to predict defaults on *new* loans, performance will collapse because `collection_recovery_fee` won't contain predictive information\u2014it will be zero/unknown for all new loans.\n\n### **The Fix**\n\nRemove `collection_recovery_fee` from the feature list:\n\n```python\nfeatures = [\n    \"income\", \"credit_score\", \"loan_amount\",\n    \"employment_years\"\n    # \"collection_recovery_fee\"  \u2190 REMOVE THIS\n]\n```\n\nOnly use features that would be **known and available before making the prediction** (i.e., at loan origination time).",
+  "timestamp": "2026-03-26T17:51:18.572993"
+}

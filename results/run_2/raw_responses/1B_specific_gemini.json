@@ -1,0 +1,14 @@
+{
+  "run_number": 2,
+  "snippet_id": "1B",
+  "leakage_type": "preprocessing_clean",
+  "has_leakage_ground_truth": false,
+  "difficulty": "n/a",
+  "prompt_type": "specific",
+  "provider": "gemini",
+  "model_name": "Gemini 2.5 Flash",
+  "model_id": "gemini-2.5-flash",
+  "status": "success",
+  "response": "This Python machine learning pipeline code is **free of data leakage**.\n\nHere's a breakdown of why it avoids common data leakage pitfalls:\n\n1.  **Train-Test Split First:**\n    ```python\n    X_train, X_test, y_train, y_test = train_test_split(\n        X, y, test_size=0.2, random_state=42\n    )\n    ```\n    This is the most crucial step. The data is split into training and testing sets *before* any preprocessing or model training occurs. This ensures that the test set remains completely unseen by the model during its training phase.\n\n2.  **Scaler Fitted Only on Training Data:**\n    ```python\n    scaler = StandardScaler()\n    X_train = scaler.fit_transform(X_train)\n    X_test = scaler.transform(X_test)\n    ```\n    The `StandardScaler` is `fit` *only* on `X_train`. This means the mean and standard deviation used for scaling are calculated exclusively from the training data. The `transform` method is then applied to both `X_train` and `X_test` using these parameters derived *solely from the training set*. This is the correct way to scale data and prevents information from the test set (e.g., its mean or standard deviation) from influencing the training process.\n\n    *   **What would be leakage here?** If you had done `scaler.fit_transform(X)` (fitting on the entire dataset `X` before splitting) or `scaler.fit_transform(X_test)` (fitting on the test set), that would be data leakage.\n\n3.  **Model Trained Only on Training Data:**\n    ```python\n    model = LinearRegression()\n    model.fit(X_train, y_train)\n    ```\n    The `LinearRegression` model is trained exclusively using `X_train` and `y_train`. It does not have access to any information from `X_test` or `y_test` during its learning phase.\n\n    *   **What would be leakage here?** If you had done `model.fit(X, y)` (fitting on the entire dataset before splitting), that would be direct data leakage.\n\nIn summary, the code correctly isolates the test set and performs all data-dependent operations (feature scaling parameter calculation, model training) exclusively on the training set, ensuring a robust and unbiased evaluation of the model's performance on unseen data.",
+  "timestamp": "2026-03-26T17:12:42.036613"
+}

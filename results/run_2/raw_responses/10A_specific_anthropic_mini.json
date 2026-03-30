@@ -1,0 +1,14 @@
+{
+  "run_number": 2,
+  "snippet_id": "10A",
+  "leakage_type": "target_leakage",
+  "has_leakage_ground_truth": true,
+  "difficulty": "hard",
+  "prompt_type": "specific",
+  "provider": "anthropic_mini",
+  "model_name": "Claude 4.5 Haiku",
+  "model_id": "claude-haiku-4-5-20251001",
+  "status": "success",
+  "response": "# Data Leakage Review\n\n## \u26a0\ufe0f CRITICAL DATA LEAKAGE DETECTED\n\nThis code contains **severe data leakage** in the feature `insurance_claim_amount`.\n\n### Where the Leakage Occurs\n\nThe feature `insurance_claim_amount` is used to predict `readmitted_within_30_days`, but this feature is fundamentally problematic:\n\n**Insurance claim amounts are typically determined AFTER a patient is treated and discharged.** If a patient is readmitted within 30 days, their insurance claim history will reflect that readmission. Therefore, the claim amount encodes information about whether readmission occurred \u2014 it's partially a consequence of the target variable, not a cause.\n\n### Why This Is a Problem\n\n1. **Temporal Violation**: At the time you would make a real prediction (e.g., at discharge), you wouldn't yet know the patient's final insurance claim amount for the 30-day period.\n\n2. **Information Leakage**: The model learns that high claim amounts correlate with readmission (because readmission generates additional claims). This appears to improve accuracy during testing, but the model would perform poorly in production.\n\n3. **Inflated Performance**: The reported accuracy is artificially high and does not reflect real-world predictive ability.\n\n### How to Fix It\n\nReplace `insurance_claim_amount` with features that are known/measured **before or at discharge time**:\n\n```python\nfeatures = [\n    \"age\", \"bmi\", \"blood_pressure\", \"num_symptoms\",\n    # \"insurance_claim_amount\",  # REMOVE THIS\n    \"discharge_type\",\n    # ADD instead:\n    \"admission_type\", \"length_of_stay\", \"medication_count\",\n    \"comorbidity_score\", \"lab_results_abnormal\"\n]\n```\n\n**General rule**: Only include features that would be available at prediction time, not those that are consequences of or correlate with the outcome.",
+  "timestamp": "2026-03-26T17:56:16.557635"
+}

@@ -1,0 +1,14 @@
+{
+  "run_number": 3,
+  "snippet_id": "3B",
+  "leakage_type": "feature_selection_clean",
+  "has_leakage_ground_truth": false,
+  "difficulty": "n/a",
+  "prompt_type": "specific",
+  "provider": "anthropic_mini",
+  "model_name": "Claude 4.5 Haiku",
+  "model_id": "claude-haiku-4-5-20251001",
+  "status": "success",
+  "response": "# Data Leakage Review\n\n## \u2705 **This code is FREE of data leakage.**\n\nThe pipeline correctly implements proper train/test separation. Here's why it's done right:\n\n### Correct Practices:\n\n1. **Train/Test Split First**\n   ```python\n   X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)\n   ```\n   Data is split *before* any feature engineering or selection.\n\n2. **Feature Selection Fit Only on Training Data**\n   ```python\n   selector = SelectKBest(score_func=f_classif, k=10)\n   X_train = selector.fit_transform(X_train, y_train)  # \u2713 Fit on training only\n   X_test = selector.transform(X_test)                 # \u2713 Transform test with training parameters\n   ```\n   The selector learns which features are most important using *only* the training set. The test set is then transformed using these pre-learned parameters\u2014simulating the real-world scenario where you don't know anything about test data when building your feature selector.\n\n3. **Model Training on Properly Processed Data**\n   ```python\n   model.fit(X_train, y_train)  # \u2713 Trained on training data only\n   y_pred = model.predict(X_test)\n   ```\n\n### Why This Matters:\n\nIf you had done `selector.fit_transform(X, y)` on the *full* dataset before splitting, the feature selector would have seen statistics from the test set, giving it unfair information about which features are most predictive. This would artificially inflate your accuracy score.\n\n**Conclusion:** This is a properly constructed pipeline with correct data separation practices.",
+  "timestamp": "2026-03-26T18:15:11.202499"
+}

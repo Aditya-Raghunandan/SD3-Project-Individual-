@@ -1,0 +1,14 @@
+{
+  "run_number": 1,
+  "snippet_id": "10A",
+  "leakage_type": "target_leakage",
+  "has_leakage_ground_truth": true,
+  "difficulty": "hard",
+  "prompt_type": "specific",
+  "provider": "anthropic_mini",
+  "model_name": "Claude 4.5 Haiku",
+  "model_id": "claude-haiku-4-5-20251001",
+  "status": "success",
+  "response": "# Data Leakage Review\n\n## \u26a0\ufe0f CRITICAL DATA LEAKAGE DETECTED\n\nThis code contains **temporal data leakage** in the feature selection:\n\n### The Problem\n\n**`insurance_claim_amount`** is a leaking feature.\n\n### Why This Is Leakage\n\n1. **Temporal ordering violation**: Insurance claim amounts are typically filed/processed *after* a patient is readmitted or during their hospital stay. This information would not be available at prediction time for a new patient.\n\n2. **Causal direction**: Readmission status likely *causes* insurance claims to be filed, not the reverse. Using the claim amount to predict readmission creates a backwards causal relationship.\n\n3. **Test performance inflation**: The model appears more accurate than it actually is because it's using future information that wouldn't exist when making real predictions on new patients.\n\n### Impact\n\n- **Training phase**: Model learns that high claim amounts correlate with readmission (because they're consequences of readmission)\n- **Real-world deployment**: For a new patient arriving at the hospital, you won't have their insurance claim amount yet\u2014making predictions impossible or forcing you to use placeholder values\n- **Evaluation bias**: The reported accuracy of ~0.89 (or whatever the actual result is) is artificially inflated\n\n### How to Fix It\n\nRemove `insurance_claim_amount` from the features:\n\n```python\nfeatures = [\n    \"age\", \"bmi\", \"blood_pressure\", \"num_symptoms\",\n    \"discharge_type\"  # Only use information available at admission\n]\n```\n\nKeep only features that are known **before** or **at the time of admission**, before any readmission event or resulting insurance claim could occur.\n\n### Other Features Assessment\n\nThe remaining features (`age`, `bmi`, `blood_pressure`, `num_symptoms`, `discharge_type`) appear appropriate for predicting readmission risk, assuming they're all measured at admission time.",
+  "timestamp": "2026-03-26T17:04:43.680603"
+}

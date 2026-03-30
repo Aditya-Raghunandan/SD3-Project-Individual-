@@ -1,0 +1,14 @@
+{
+  "run_number": 3,
+  "snippet_id": "4B",
+  "leakage_type": "imputation_clean",
+  "has_leakage_ground_truth": false,
+  "difficulty": "n/a",
+  "prompt_type": "specific",
+  "provider": "anthropic_mini",
+  "model_name": "Claude 4.5 Haiku",
+  "model_id": "claude-haiku-4-5-20251001",
+  "status": "success",
+  "response": "# Data Leakage Review\n\n**This code is FREE of data leakage.** \u2713\n\n## Explanation\n\nThe code correctly handles imputation by:\n\n1. **Computing statistics only from training data:**\n   ```python\n   train_age_mean = X_train[\"age\"].mean()\n   train_bp_median = X_train[\"blood_pressure\"].median()\n   train_chol_mean = X_train[\"cholesterol\"].mean()\n   ```\n\n2. **Applying those training-derived statistics to both train and test sets:**\n   ```python\n   X_train[\"age\"].fillna(train_age_mean, inplace=True)\n   X_test[\"age\"].fillna(train_age_mean, inplace=True)  # Uses TRAINING mean\n   ```\n\nThis is the **correct approach**. The test set is imputed using training statistics, which mirrors real-world prediction scenarios where you'd only have training data to learn from.\n\n## What Would Be Data Leakage\n\nData leakage would occur if the code instead computed statistics from the entire dataset **before** splitting:\n\n```python\n# \u274c WRONG - Data Leakage\nglobal_age_mean = X[\"age\"].mean()  # Computed from train + test\nX_train[\"age\"].fillna(global_age_mean, inplace=True)\nX_test[\"age\"].fillna(global_age_mean, inplace=True)\n```\n\nThis would leak test information into training because test statistics influence the imputation values.\n\n## Summary\n\nThe code demonstrates proper data leakage prevention by respecting the temporal/logical boundary between train and test sets during preprocessing.",
+  "timestamp": "2026-03-26T18:20:37.113268"
+}

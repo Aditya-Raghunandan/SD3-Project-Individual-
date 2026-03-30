@@ -1,0 +1,14 @@
+{
+  "run_number": 1,
+  "snippet_id": "2A",
+  "leakage_type": "preprocessing",
+  "has_leakage_ground_truth": true,
+  "difficulty": "easy",
+  "prompt_type": "specific",
+  "provider": "anthropic_mini",
+  "model_name": "Claude 4.5 Haiku",
+  "model_id": "claude-haiku-4-5-20251001",
+  "status": "success",
+  "response": "# Data Leakage Review\n\n## **CRITICAL DATA LEAKAGE FOUND**\n\nThis code contains **serious data leakage** in the preprocessing step.\n\n### The Problem\n\n```python\nscaler = MinMaxScaler()\nX_normalized = scaler.fit_transform(X)  # \u2190 FIT on ALL data (train + test)\n\nX_train, X_test, y_train, y_test = train_test_split(\n    X_normalized, y, test_size=0.25, random_state=7\n)\n```\n\nThe `MinMaxScaler` is **fit on the entire dataset** (both training and test data) *before* the train-test split. This means:\n\n1. **The scaler learns the min/max values from the test set** \u2014 information that should be unknown during training\n2. **Test data statistics influence the normalization of training data** \u2014 violating the principle that training and test sets should be independent\n3. **At real prediction time**, you wouldn't have access to future test data's min/max values, so this creates an unrealistic scenario\n\n### Why This Is a Problem\n\n- The reported R\u00b2 score is **artificially inflated** because the model benefited from information it shouldn't have had\n- The model's true generalization performance is **overestimated**\n- Results are **not reproducible** on truly unseen data\n\n### The Fix\n\nFit the scaler **only on training data**, then apply it to both sets:\n\n```python\nX_train, X_test, y_train, y_test = train_test_split(\n    X, y, test_size=0.25, random_state=7\n)\n\nscaler = MinMaxScaler()\nX_train = scaler.fit_transform(X_train)  # \u2190 FIT only on training data\nX_test = scaler.transform(X_test)        # \u2190 TRANSFORM test data with training statistics\n\nmodel = SVR(kernel=\"rbf\")\nmodel.fit(X_train, y_train)\ny_pred = model.predict(X_test)\nprint(f\"R2 Score: {r2_score(y_test, y_pred):.4f}\")\n```\n\nThis ensures the test set is truly held-out and unbiased.",
+  "timestamp": "2026-03-26T16:22:58.653046"
+}

@@ -1,0 +1,14 @@
+{
+  "run_number": 3,
+  "snippet_id": "3A",
+  "leakage_type": "feature_selection",
+  "has_leakage_ground_truth": true,
+  "difficulty": "easy-medium",
+  "prompt_type": "specific",
+  "provider": "openai_flagship",
+  "model_name": "GPT-4o",
+  "model_id": "gpt-4o",
+  "status": "success",
+  "response": "The given code contains a form of data leakage due to how the feature selection is performed. Let's break down why this is a problem:\n\n1. **Feature Selection Before Train-Test Split**:\n   - The code performs feature selection using `SelectKBest` on the entire dataset (`X`) before splitting it into training and test sets. This means that the selection of features is based on the entire dataset, including the test set, which exposes the model to information from the test data during the feature selection process.\n   - Ideally, feature selection should only be based on the training data, allowing the test data to remain completely unseen during model training and feature selection. This ensures that the test set is a true unseen dataset to assess the model's performance.\n\n   To prevent this form of data leakage, `SelectKBest` should be applied after splitting the dataset into training and test sets. Here's how you can fix it:\n\n   ```python\n   import pandas as pd\n   from sklearn.feature_selection import SelectKBest, f_classif\n   from sklearn.model_selection import train_test_split\n   from sklearn.ensemble import RandomForestClassifier\n   from sklearn.metrics import accuracy_score\n   \n   # Load data\n   df = pd.read_csv(\"medical.csv\")\n   X = df.drop(\"diagnosis\", axis=1)\n   y = df[\"diagnosis\"]\n   \n   # Split data into train and test sets\n   X_train, X_test, y_train, y_test = train_test_split(\n       X, y, test_size=0.2, random_state=42\n   )\n   \n   # Perform feature selection on the training data only\n   selector = SelectKBest(score_func=f_classif, k=10)\n   X_train_selected = selector.fit_transform(X_train, y_train)\n   \n   # Transform the test data using the same features\n   X_test_selected = selector.transform(X_test)\n   \n   # Train a RandomForestClassifier\n   model = RandomForestClassifier(n_estimators=100, random_state=42)\n   model.fit(X_train_selected, y_train)\n   \n   # Predict and evaluate the model\n   y_pred = model.predict(X_test_selected)\n   print(f\"Accuracy: {accuracy_score(y_test, y_pred):.4f}\")\n   ```\n\nBy applying feature selection only to the training dataset and not to the entire dataset, we remove the data leakage problem and ensure that the test data is not used in the training process, providing a more accurate evaluation of model performance.",
+  "timestamp": "2026-03-26T18:11:46.937038"
+}

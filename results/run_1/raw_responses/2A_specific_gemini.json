@@ -1,0 +1,14 @@
+{
+  "run_number": 1,
+  "snippet_id": "2A",
+  "leakage_type": "preprocessing",
+  "has_leakage_ground_truth": true,
+  "difficulty": "easy",
+  "prompt_type": "specific",
+  "provider": "gemini",
+  "model_name": "Gemini 2.5 Flash",
+  "model_id": "gemini-2.5-flash",
+  "status": "success",
+  "response": "Yes, this code **does contain data leakage**.\n\nThe data leakage occurs during the **feature scaling** step.\n\n**Where it occurs:**\n\n```python\nscaler = MinMaxScaler()\nX_normalized = scaler.fit_transform(X) # <-- Data leakage happens here!\n```\n\n**Why it is a problem:**\n\n1.  **`scaler.fit_transform(X)`** is applied to the *entire dataset `X`* (which includes both future training and testing data) *before* the `train_test_split` function is called.\n2.  The `MinMaxScaler().fit()` method calculates the minimum and maximum values for each feature based on the data it receives. By fitting it on `X` (the complete dataset), the scaler learns the min/max ranges from the entire dataset, including the test set.\n3.  This means that when the data is subsequently split into `X_train` and `X_test`, the `X_train` data has already been scaled using information (the min/max values) derived from the `X_test` set.\n4.  **Consequence:** The model implicitly \"sees\" some characteristics of the test set's distribution during the training phase. This can lead to an overly optimistic performance estimate (e.g., a higher R2 score) because the model has an unfair advantage, learning subtle information about the data it's supposed to predict as \"unseen.\" In a real-world scenario, you wouldn't have access to the test data's distribution characteristics when you're preparing your training data.\n\n**How to fix it:**\n\nThe scaler should be `fit` *only* on the training data, and then used to `transform` both the training and test data separately.\n\nHere's the corrected code snippet:\n\n```python\nimport pandas as pd\nfrom sklearn.preprocessing import MinMaxScaler\nfrom sklearn.model_selection import train_test_split\nfrom sklearn.svm import SVR\nfrom sklearn.metrics import r2_score\n\ndf = pd.read_csv(\"energy.csv\")\nX = df[[\"temperature\", \"humidity\", \"wind_speed\", \"pressure\"]]\ny = df[\"energy_consumption\"]\n\n# --- CORRECTED PART ---\n# Split the data BEFORE scaling\nX_train, X_test, y_train, y_test = train_test_split(\n    X, y, test_size=0.25, random_state=7\n)\n\nscaler = MinMaxScaler()\n# Fit the scaler ONLY on the training data\nX_train_normalized = scaler.fit_transform(X_train)\n# Transform the test data using the scaler fitted on the training data\nX_test_normalized = scaler.transform(X_test)\n# --- END CORRECTED PART ---\n\nmodel = SVR(kernel=\"rbf\")\nmodel.fit(X_train_normalized, y_train) # Use normalized training data\ny_pred = model.predict(X_test_normalized) # Predict on normalized test data\nprint(f\"R2 Score: {r2_score(y_test, y_pred):.4f}\")\n```",
+  "timestamp": "2026-03-26T16:23:09.981270"
+}

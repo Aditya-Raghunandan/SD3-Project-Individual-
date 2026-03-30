@@ -1,0 +1,14 @@
+{
+  "run_number": 1,
+  "snippet_id": "9B",
+  "leakage_type": "target_leakage_clean",
+  "has_leakage_ground_truth": false,
+  "difficulty": "n/a",
+  "prompt_type": "specific",
+  "provider": "anthropic_mini",
+  "model_name": "Claude 4.5 Haiku",
+  "model_id": "claude-haiku-4-5-20251001",
+  "status": "success",
+  "response": "# Data Leakage Review\n\n## Verdict: **No data leakage detected**\n\nThis code follows proper machine learning practices and does not exhibit data leakage. Here's why:\n\n### \u2705 What the code does correctly:\n\n1. **Train-test split happens first**: The data is split into training and test sets *before* any model fitting occurs.\n\n2. **No preprocessing on full dataset**: There is no scaling, normalization, encoding, or other transformations applied to the entire dataset before splitting. (Such preprocessing would need to be fit on training data only.)\n\n3. **Model training is isolated**: `model.fit(X_train, y_train)` uses only training data.\n\n4. **Prediction uses test data alone**: `model.predict(X_test)` makes predictions on unseen test data without any information from `y_test`.\n\n5. **Feature selection is safe**: All four features (`income`, `credit_score`, `loan_amount`, `employment_years`) are attributes that would be available at prediction time for new loan applicants.\n\n### Potential improvements (not leakage, but best practices):\n\nWhile not leakage, the code *could* be made more robust:\n\n```python\n# If preprocessing were added, it should be done AFTER split:\nfrom sklearn.preprocessing import StandardScaler\n\nscaler = StandardScaler()\nX_train_scaled = scaler.fit_transform(X_train)  # Fit on train only\nX_test_scaled = scaler.transform(X_test)       # Transform test using train statistics\n\nmodel.fit(X_train_scaled, y_train)\ny_pred = model.predict(X_test_scaled)\n```\n\nBut the original code has no such preprocessing, so this is not an issue.\n\n**Conclusion**: This is a clean, leak-free pipeline. \u2713",
+  "timestamp": "2026-03-26T17:01:43.980424"
+}

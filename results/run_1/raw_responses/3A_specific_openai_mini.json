@@ -1,0 +1,14 @@
+{
+  "run_number": 1,
+  "snippet_id": "3A",
+  "leakage_type": "feature_selection",
+  "has_leakage_ground_truth": true,
+  "difficulty": "easy-medium",
+  "prompt_type": "specific",
+  "provider": "openai_mini",
+  "model_name": "GPT-4o-mini",
+  "model_id": "gpt-4o-mini",
+  "status": "success",
+  "response": "The provided code does contain a form of data leakage due to the use of the `SelectKBest` feature selection method applied before splitting the data into training and testing sets. \n\n### Explanation of Data Leakage\n\n1. **Use of `SelectKBest` Before Train-Test Split**: \n   - The code performs `selector.fit_transform(X, y)` on the entire dataset before the data is split into training and testing subsets.\n   - This means that the feature selection process uses information from the entire dataset (including the test set) to identify the best features. As a result, features that may only correlate with the target variable in the test set can be included in the training set.\n\n2. **Impact**:\n   - Because the test set influences the feature selection, the resulting model could perform optimally on the test set due to having access to information that would not typically be available at prediction time. This results in overly optimistic accuracy scores and fails to provide a realistic estimate of the model's performance on unseen data.\n\n### Recommended Fix\n\nTo resolve this data leakage issue, the feature selection process should be performed **after** splitting the dataset into training and testing sets. Here\u2019s how you could modify the code:\n\n```python\nX_train, X_test, y_train, y_test = train_test_split(\n    X, y, test_size=0.2, random_state=42\n)\n\nselector = SelectKBest(score_func=f_classif, k=10)\nX_train_selected = selector.fit_transform(X_train, y_train)\nX_test_selected = selector.transform(X_test)\n\nmodel = RandomForestClassifier(n_estimators=100, random_state=42)\nmodel.fit(X_train_selected, y_train)\ny_pred = model.predict(X_test_selected)\nprint(f\"Accuracy: {accuracy_score(y_test, y_pred):.4f}\")\n```\n\nIn this updated version, the data is first divided into training and testing sets, and then the feature selection is applied only to the training data. The selected features can then be applied to test data using `selector.transform(X_test)`, ensuring that the test data does not influence the training process. This will help achieve a more accurate assessment of the model's performance on unseen data without bias from the test set.",
+  "timestamp": "2026-03-26T16:27:29.729437"
+}
