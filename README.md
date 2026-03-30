@@ -52,7 +52,3 @@ export GEMINI_API_KEY="AI..."
 python analysisScript.py --runs 3
 ```
 The script will automatically create a `results/` folder, manage rate limits, and output the consolidated CSVs for grading.
-
-## 📝 License & Acknowledgements
-In accordance with the Wits School of Electrical and Information Engineering LLM Report Writing Policy, an LLM was utilized to assist in the generation of the Python API automation script and formatting of the LaTeX report. The experimental design, dataset curation, manual grading, and intellectual conclusions are entirely the original work of the author.
-```
