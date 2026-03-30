@@ -4,12 +4,12 @@
 **Institution:** University of the Witwatersrand, Johannesburg  
 **Author:** Aditya Raghunandan  
 
-## 📌 Project Overview
+##  Project Overview
 This repository contains the automation scripts, prompt datasets, and evaluation logs for my empirical investigation into whether Large Language Models (LLMs) can reliably detect methodological data leakage in Machine Learning (ML) pipelines.
 
 The study evaluates five state-of-the-art LLMs (`GPT-4o`, `GPT-4o-mini`, `Claude 4.6 Sonnet`, `Claude 4.5 Haiku`, and `Gemini 2.5 Flash`) across 20 curated Python snippets containing various forms of structural and semantic data leakage. The experiment compares a **Generic** code-review prompt against a **Leakage-Specific** prompt to measure the "Prompt-Sensitivity Gap."
 
-## 📂 Repository Structure
+##  Repository Structure
 
 The repository is structured to separate the automation code from the generated experimental data:
 
@@ -25,12 +25,12 @@ The repository is structured to separate the automation code from the generated 
     └── run_3/                      # Raw JSON backups and CSVs for Experiment Run 3
 ```
 
-## 📊 Data Collection & Prompts
+##  Data Collection & Prompts
 The 20 Python snippets (10 buggy, 10 clean) and the exact prompts used for the experiment are hardcoded directly inside `analysisScript.py`. 
 
 Because LLM outputs are non-deterministic, the script is designed to run the entire suite 3 times, generating 360 total data points to ensure statistical validity. The full unedited responses from the LLMs can be found in `results/all_runs_combined.csv`.
 
-## 🚀 How to Replicate the Experiment
+##  How to Replicate the Experiment
 
 If you wish to re-run the API querying script yourself, you will need active API keys for OpenAI, Anthropic, and Google Gemini.
 
