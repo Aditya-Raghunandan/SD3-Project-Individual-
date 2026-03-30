@@ -1,643 +1,220 @@
 """
-AUTOMATED LLM LEAKAGE DETECTION EXPERIMENT
-============================================
-Sends 20 code snippets × 2 prompt types × 3 LLMs = 120 queries.
-Saves all responses to a structured CSV for manual grading.
+LLM Data Leakage Detection - Experiment Runner
+Author: Aditya Raghunandan
+Date: March 2026
 
-SETUP:
-1. pip install openai anthropic google-generativeai
-2. Set your API keys as environment variables:
-   export OPENAI_API_KEY="sk-..."
-   export ANTHROPIC_API_KEY="sk-ant-..."
-   export GEMINI_API_KEY="AI..."
-   
-   Or paste them directly in the API_KEYS dict below (less secure).
-
-3. Run: python run_experiment.py
-
-OUTPUT:
-- results/all_responses.csv — one row per query with full response text
-- results/grading_sheet.csv — same rows but with empty columns for you to grade
-- results/raw_responses/ — individual JSON files per query (backup)
+This script evaluates multiple LLMs on their ability to detect data leakage 
+in machine learning pipelines. It queries OpenAI, Anthropic, and Google APIs
+using both generic and targeted prompts, saving the results for manual grading.
 """
 
 import os
 import json
 import csv
 import time
+import logging
+import argparse
 from datetime import datetime
 from pathlib import Path
+from typing import Dict, List, Any
 
-# ============================================================
-# API KEYS — set via environment variables or paste here
-# ============================================================
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    datefmt='%H:%M:%S'
+)
+logger = logging.getLogger(__name__)
+
+# --- Configuration & API Setup ---
+
 API_KEYS = {
     "openai": os.environ.get("OPENAI_API_KEY", ""),
     "anthropic": os.environ.get("ANTHROPIC_API_KEY", ""),
     "gemini": os.environ.get("GEMINI_API_KEY", ""),
 }
 
-# MODEL CONFIGURATION
 MODELS = {
-    "openai_flagship": {
-        "name": "GPT-4o",
-        "model_id": "gpt-4o",
-        "provider": "openai",  
-    },
-    "openai_mini": {
-        "name": "GPT-4o-mini",
-        "model_id": "gpt-4o-mini",
-        "provider": "openai",  
-    },
-    "anthropic_flagship": {
-        "name": "Claude 4.6 Sonnet",
-        "model_id": "claude-sonnet-4-6",          # <-- Fixed using your screenshot
-        "provider": "anthropic", 
-    },
-    "anthropic_mini": {
-        "name": "Claude 4.5 Haiku",
-        "model_id": "claude-haiku-4-5-20251001",  # <-- Fixed using your screenshot
-        "provider": "anthropic", 
-    },
-    "gemini": {
-        "name": "Gemini 2.5 Flash",
-        "model_id": "gemini-2.5-flash",
-        "provider": "gemini",   
-    },
+    "openai_flagship": {"name": "GPT-4o", "model_id": "gpt-4o", "provider": "openai"},
+    "openai_mini": {"name": "GPT-4o-mini", "model_id": "gpt-4o-mini", "provider": "openai"},
+    "anthropic_flagship": {"name": "Claude 4.6 Sonnet", "model_id": "claude-sonnet-4-6", "provider": "anthropic"},
+    "anthropic_mini": {"name": "Claude 4.5 Haiku", "model_id": "claude-haiku-4-5-20251001", "provider": "anthropic"},
+    "gemini": {"name": "Gemini 2.5 Flash", "model_id": "gemini-2.5-flash", "provider": "gemini"},
 }
-# ============================================================
-# PROMPTS
-# ============================================================
-PROMPT_GENERIC = """Review the following Python code for any issues, bugs, or bad practices. Identify all problems you find and explain each one.
 
-```python
-{code}
-```"""
+PROMPTS = {
+    "generic": (
+        "Review the following Python code for any issues, bugs, or bad practices. "
+        "Identify all problems you find and explain each one.\n\n```python\n{code}\n```"
+    ),
+    "specific": (
+        "Review the following Python machine learning pipeline code. Specifically check whether "
+        "this code contains any form of data leakage — that is, whether information from the test "
+        "set could be inadvertently used during training, or whether any features encode information "
+        "about the target that would not be available at prediction time.\n\n"
+        "If you find data leakage, explain exactly where it occurs and why it is a problem. "
+        "If the code is free of data leakage, state that clearly.\n\n```python\n{code}\n```"
+    )
+}
 
-PROMPT_SPECIFIC = """Review the following Python machine learning pipeline code. Specifically check whether this code contains any form of data leakage — that is, whether information from the test set could be inadvertently used during training, or whether any features encode information about the target that would not be available at prediction time.
-
-If you find data leakage, explain exactly where it occurs and why it is a problem. If the code is free of data leakage, state that clearly.
-
-```python
-{code}
-```"""
-
-# ============================================================
-# CODE SNIPPETS — all 20 snippets
-# ============================================================
+# --- Dataset ---
+# Snippets are mapped by ID. 10 Leaky (A), 10 Clean (B).
 SNIPPETS = {
     "1A": {
         "leakage_type": "preprocessing",
         "has_leakage": True,
         "difficulty": "easy",
-        "code": '''import pandas as pd
-from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import train_test_split
-from sklearn.linear_model import LinearRegression
-from sklearn.metrics import mean_squared_error
-
-df = pd.read_csv("housing.csv")
-X = df.drop("price", axis=1)
-y = df["price"]
-
-scaler = StandardScaler()
-X_scaled = scaler.fit_transform(X)
-
-X_train, X_test, y_train, y_test = train_test_split(
-    X_scaled, y, test_size=0.2, random_state=42
-)
-
-model = LinearRegression()
-model.fit(X_train, y_train)
-y_pred = model.predict(X_test)
-print(f"MSE: {mean_squared_error(y_test, y_pred):.4f}")'''
+        "code": "import pandas as pd\nfrom sklearn.preprocessing import StandardScaler\nfrom sklearn.model_selection import train_test_split\nfrom sklearn.linear_model import LinearRegression\nfrom sklearn.metrics import mean_squared_error\n\ndf = pd.read_csv('housing.csv')\nX = df.drop('price', axis=1)\ny = df['price']\n\nscaler = StandardScaler()\nX_scaled = scaler.fit_transform(X)\n\nX_train, X_test, y_train, y_test = train_test_split(\n    X_scaled, y, test_size=0.2, random_state=42\n)\n\nmodel = LinearRegression()\nmodel.fit(X_train, y_train)\ny_pred = model.predict(X_test)\nprint(f'MSE: {mean_squared_error(y_test, y_pred):.4f}')"
     },
     "1B": {
         "leakage_type": "preprocessing_clean",
         "has_leakage": False,
         "difficulty": "n/a",
-        "code": '''import pandas as pd
-from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import train_test_split
-from sklearn.linear_model import LinearRegression
-from sklearn.metrics import mean_squared_error
-
-df = pd.read_csv("housing.csv")
-X = df.drop("price", axis=1)
-y = df["price"]
-
-X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.2, random_state=42
-)
-
-scaler = StandardScaler()
-X_train = scaler.fit_transform(X_train)
-X_test = scaler.transform(X_test)
-
-model = LinearRegression()
-model.fit(X_train, y_train)
-y_pred = model.predict(X_test)
-print(f"MSE: {mean_squared_error(y_test, y_pred):.4f}")'''
+        "code": "import pandas as pd\nfrom sklearn.preprocessing import StandardScaler\nfrom sklearn.model_selection import train_test_split\nfrom sklearn.linear_model import LinearRegression\nfrom sklearn.metrics import mean_squared_error\n\ndf = pd.read_csv('housing.csv')\nX = df.drop('price', axis=1)\ny = df['price']\n\nX_train, X_test, y_train, y_test = train_test_split(\n    X, y, test_size=0.2, random_state=42\n)\n\nscaler = StandardScaler()\nX_train = scaler.fit_transform(X_train)\nX_test = scaler.transform(X_test)\n\nmodel = LinearRegression()\nmodel.fit(X_train, y_train)\ny_pred = model.predict(X_test)\nprint(f'MSE: {mean_squared_error(y_test, y_pred):.4f}')"
     },
     "2A": {
         "leakage_type": "preprocessing",
         "has_leakage": True,
         "difficulty": "easy",
-        "code": '''import pandas as pd
-from sklearn.preprocessing import MinMaxScaler
-from sklearn.model_selection import train_test_split
-from sklearn.svm import SVR
-from sklearn.metrics import r2_score
-
-df = pd.read_csv("energy.csv")
-X = df[["temperature", "humidity", "wind_speed", "pressure"]]
-y = df["energy_consumption"]
-
-scaler = MinMaxScaler()
-X_normalized = scaler.fit_transform(X)
-
-X_train, X_test, y_train, y_test = train_test_split(
-    X_normalized, y, test_size=0.25, random_state=7
-)
-
-model = SVR(kernel="rbf")
-model.fit(X_train, y_train)
-y_pred = model.predict(X_test)
-print(f"R2 Score: {r2_score(y_test, y_pred):.4f}")'''
+        "code": "import pandas as pd\nfrom sklearn.preprocessing import MinMaxScaler\nfrom sklearn.model_selection import train_test_split\nfrom sklearn.svm import SVR\nfrom sklearn.metrics import r2_score\n\ndf = pd.read_csv('energy.csv')\nX = df[['temperature', 'humidity', 'wind_speed', 'pressure']]\ny = df['energy_consumption']\n\nscaler = MinMaxScaler()\nX_normalized = scaler.fit_transform(X)\n\nX_train, X_test, y_train, y_test = train_test_split(\n    X_normalized, y, test_size=0.25, random_state=7\n)\n\nmodel = SVR(kernel='rbf')\nmodel.fit(X_train, y_train)\ny_pred = model.predict(X_test)\nprint(f'R2 Score: {r2_score(y_test, y_pred):.4f}')"
     },
     "2B": {
         "leakage_type": "preprocessing_clean",
         "has_leakage": False,
         "difficulty": "n/a",
-        "code": '''import pandas as pd
-from sklearn.preprocessing import MinMaxScaler
-from sklearn.model_selection import train_test_split
-from sklearn.svm import SVR
-from sklearn.metrics import r2_score
-
-df = pd.read_csv("energy.csv")
-X = df[["temperature", "humidity", "wind_speed", "pressure"]]
-y = df["energy_consumption"]
-
-X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.25, random_state=7
-)
-
-scaler = MinMaxScaler()
-X_train = scaler.fit_transform(X_train)
-X_test = scaler.transform(X_test)
-
-model = SVR(kernel="rbf")
-model.fit(X_train, y_train)
-y_pred = model.predict(X_test)
-print(f"R2 Score: {r2_score(y_test, y_pred):.4f}")'''
+        "code": "import pandas as pd\nfrom sklearn.preprocessing import MinMaxScaler\nfrom sklearn.model_selection import train_test_split\nfrom sklearn.svm import SVR\nfrom sklearn.metrics import r2_score\n\ndf = pd.read_csv('energy.csv')\nX = df[['temperature', 'humidity', 'wind_speed', 'pressure']]\ny = df['energy_consumption']\n\nX_train, X_test, y_train, y_test = train_test_split(\n    X, y, test_size=0.25, random_state=7\n)\n\nscaler = MinMaxScaler()\nX_train = scaler.fit_transform(X_train)\nX_test = scaler.transform(X_test)\n\nmodel = SVR(kernel='rbf')\nmodel.fit(X_train, y_train)\ny_pred = model.predict(X_test)\nprint(f'R2 Score: {r2_score(y_test, y_pred):.4f}')"
     },
     "3A": {
         "leakage_type": "feature_selection",
         "has_leakage": True,
         "difficulty": "easy-medium",
-        "code": '''import pandas as pd
-from sklearn.feature_selection import SelectKBest, f_classif
-from sklearn.model_selection import train_test_split
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import accuracy_score
-
-df = pd.read_csv("medical.csv")
-X = df.drop("diagnosis", axis=1)
-y = df["diagnosis"]
-
-selector = SelectKBest(score_func=f_classif, k=10)
-X_selected = selector.fit_transform(X, y)
-
-X_train, X_test, y_train, y_test = train_test_split(
-    X_selected, y, test_size=0.2, random_state=42
-)
-
-model = RandomForestClassifier(n_estimators=100, random_state=42)
-model.fit(X_train, y_train)
-y_pred = model.predict(X_test)
-print(f"Accuracy: {accuracy_score(y_test, y_pred):.4f}")'''
+        "code": "import pandas as pd\nfrom sklearn.feature_selection import SelectKBest, f_classif\nfrom sklearn.model_selection import train_test_split\nfrom sklearn.ensemble import RandomForestClassifier\nfrom sklearn.metrics import accuracy_score\n\ndf = pd.read_csv('medical.csv')\nX = df.drop('diagnosis', axis=1)\ny = df['diagnosis']\n\nselector = SelectKBest(score_func=f_classif, k=10)\nX_selected = selector.fit_transform(X, y)\n\nX_train, X_test, y_train, y_test = train_test_split(\n    X_selected, y, test_size=0.2, random_state=42\n)\n\nmodel = RandomForestClassifier(n_estimators=100, random_state=42)\nmodel.fit(X_train, y_train)\ny_pred = model.predict(X_test)\nprint(f'Accuracy: {accuracy_score(y_test, y_pred):.4f}')"
     },
     "3B": {
         "leakage_type": "feature_selection_clean",
         "has_leakage": False,
         "difficulty": "n/a",
-        "code": '''import pandas as pd
-from sklearn.feature_selection import SelectKBest, f_classif
-from sklearn.model_selection import train_test_split
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import accuracy_score
-
-df = pd.read_csv("medical.csv")
-X = df.drop("diagnosis", axis=1)
-y = df["diagnosis"]
-
-X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.2, random_state=42
-)
-
-selector = SelectKBest(score_func=f_classif, k=10)
-X_train = selector.fit_transform(X_train, y_train)
-X_test = selector.transform(X_test)
-
-model = RandomForestClassifier(n_estimators=100, random_state=42)
-model.fit(X_train, y_train)
-y_pred = model.predict(X_test)
-print(f"Accuracy: {accuracy_score(y_test, y_pred):.4f}")'''
+        "code": "import pandas as pd\nfrom sklearn.feature_selection import SelectKBest, f_classif\nfrom sklearn.model_selection import train_test_split\nfrom sklearn.ensemble import RandomForestClassifier\nfrom sklearn.metrics import accuracy_score\n\ndf = pd.read_csv('medical.csv')\nX = df.drop('diagnosis', axis=1)\ny = df['diagnosis']\n\nX_train, X_test, y_train, y_test = train_test_split(\n    X, y, test_size=0.2, random_state=42\n)\n\nselector = SelectKBest(score_func=f_classif, k=10)\nX_train = selector.fit_transform(X_train, y_train)\nX_test = selector.transform(X_test)\n\nmodel = RandomForestClassifier(n_estimators=100, random_state=42)\nmodel.fit(X_train, y_train)\ny_pred = model.predict(X_test)\nprint(f'Accuracy: {accuracy_score(y_test, y_pred):.4f}')"
     },
     "4A": {
         "leakage_type": "imputation",
         "has_leakage": True,
         "difficulty": "easy-medium",
-        "code": '''import pandas as pd
-from sklearn.model_selection import train_test_split
-from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score
-
-df = pd.read_csv("patients.csv")
-X = df.drop("readmitted", axis=1)
-y = df["readmitted"]
-
-X["age"].fillna(X["age"].mean(), inplace=True)
-X["blood_pressure"].fillna(X["blood_pressure"].median(), inplace=True)
-X["cholesterol"].fillna(X["cholesterol"].mean(), inplace=True)
-
-X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.2, random_state=42
-)
-
-model = LogisticRegression(max_iter=1000)
-model.fit(X_train, y_train)
-y_pred = model.predict(X_test)
-print(f"Accuracy: {accuracy_score(y_test, y_pred):.4f}")'''
+        "code": "import pandas as pd\nfrom sklearn.model_selection import train_test_split\nfrom sklearn.linear_model import LogisticRegression\nfrom sklearn.metrics import accuracy_score\n\ndf = pd.read_csv('patients.csv')\nX = df.drop('readmitted', axis=1)\ny = df['readmitted']\n\nX['age'].fillna(X['age'].mean(), inplace=True)\nX['blood_pressure'].fillna(X['blood_pressure'].median(), inplace=True)\nX['cholesterol'].fillna(X['cholesterol'].mean(), inplace=True)\n\nX_train, X_test, y_train, y_test = train_test_split(\n    X, y, test_size=0.2, random_state=42\n)\n\nmodel = LogisticRegression(max_iter=1000)\nmodel.fit(X_train, y_train)\ny_pred = model.predict(X_test)\nprint(f'Accuracy: {accuracy_score(y_test, y_pred):.4f}')"
     },
     "4B": {
         "leakage_type": "imputation_clean",
         "has_leakage": False,
         "difficulty": "n/a",
-        "code": '''import pandas as pd
-from sklearn.model_selection import train_test_split
-from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score
-
-df = pd.read_csv("patients.csv")
-X = df.drop("readmitted", axis=1)
-y = df["readmitted"]
-
-X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.2, random_state=42
-)
-
-train_age_mean = X_train["age"].mean()
-train_bp_median = X_train["blood_pressure"].median()
-train_chol_mean = X_train["cholesterol"].mean()
-
-X_train["age"].fillna(train_age_mean, inplace=True)
-X_train["blood_pressure"].fillna(train_bp_median, inplace=True)
-X_train["cholesterol"].fillna(train_chol_mean, inplace=True)
-
-X_test["age"].fillna(train_age_mean, inplace=True)
-X_test["blood_pressure"].fillna(train_bp_median, inplace=True)
-X_test["cholesterol"].fillna(train_chol_mean, inplace=True)
-
-model = LogisticRegression(max_iter=1000)
-model.fit(X_train, y_train)
-y_pred = model.predict(X_test)
-print(f"Accuracy: {accuracy_score(y_test, y_pred):.4f}")'''
+        "code": "import pandas as pd\nfrom sklearn.model_selection import train_test_split\nfrom sklearn.linear_model import LogisticRegression\nfrom sklearn.metrics import accuracy_score\n\ndf = pd.read_csv('patients.csv')\nX = df.drop('readmitted', axis=1)\ny = df['readmitted']\n\nX_train, X_test, y_train, y_test = train_test_split(\n    X, y, test_size=0.2, random_state=42\n)\n\ntrain_age_mean = X_train['age'].mean()\ntrain_bp_median = X_train['blood_pressure'].median()\ntrain_chol_mean = X_train['cholesterol'].mean()\n\nX_train['age'].fillna(train_age_mean, inplace=True)\nX_train['blood_pressure'].fillna(train_bp_median, inplace=True)\nX_train['cholesterol'].fillna(train_chol_mean, inplace=True)\n\nX_test['age'].fillna(train_age_mean, inplace=True)\nX_test['blood_pressure'].fillna(train_bp_median, inplace=True)\nX_test['cholesterol'].fillna(train_chol_mean, inplace=True)\n\nmodel = LogisticRegression(max_iter=1000)\nmodel.fit(X_train, y_train)\ny_pred = model.predict(X_test)\nprint(f'Accuracy: {accuracy_score(y_test, y_pred):.4f}')"
     },
     "5A": {
         "leakage_type": "imputation",
         "has_leakage": True,
         "difficulty": "easy-medium",
-        "code": '''import pandas as pd
-from sklearn.impute import SimpleImputer
-from sklearn.model_selection import train_test_split
-from sklearn.tree import DecisionTreeClassifier
-from sklearn.metrics import f1_score
-
-df = pd.read_csv("credit.csv")
-X = df.drop("default", axis=1)
-y = df["default"]
-
-imputer = SimpleImputer(strategy="mean")
-X_imputed = pd.DataFrame(
-    imputer.fit_transform(X), columns=X.columns
-)
-
-X_train, X_test, y_train, y_test = train_test_split(
-    X_imputed, y, test_size=0.3, random_state=10
-)
-
-model = DecisionTreeClassifier(random_state=10)
-model.fit(X_train, y_train)
-y_pred = model.predict(X_test)
-print(f"F1 Score: {f1_score(y_test, y_pred):.4f}")'''
+        "code": "import pandas as pd\nfrom sklearn.impute import SimpleImputer\nfrom sklearn.model_selection import train_test_split\nfrom sklearn.tree import DecisionTreeClassifier\nfrom sklearn.metrics import f1_score\n\ndf = pd.read_csv('credit.csv')\nX = df.drop('default', axis=1)\ny = df['default']\n\nimputer = SimpleImputer(strategy='mean')\nX_imputed = pd.DataFrame(\n    imputer.fit_transform(X), columns=X.columns\n)\n\nX_train, X_test, y_train, y_test = train_test_split(\n    X_imputed, y, test_size=0.3, random_state=10\n)\n\nmodel = DecisionTreeClassifier(random_state=10)\nmodel.fit(X_train, y_train)\ny_pred = model.predict(X_test)\nprint(f'F1 Score: {f1_score(y_test, y_pred):.4f}')"
     },
     "5B": {
         "leakage_type": "imputation_clean",
         "has_leakage": False,
         "difficulty": "n/a",
-        "code": '''import pandas as pd
-from sklearn.impute import SimpleImputer
-from sklearn.model_selection import train_test_split
-from sklearn.tree import DecisionTreeClassifier
-from sklearn.metrics import f1_score
-
-df = pd.read_csv("credit.csv")
-X = df.drop("default", axis=1)
-y = df["default"]
-
-X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.3, random_state=10
-)
-
-imputer = SimpleImputer(strategy="mean")
-X_train = pd.DataFrame(
-    imputer.fit_transform(X_train), columns=X.columns
-)
-X_test = pd.DataFrame(
-    imputer.transform(X_test), columns=X.columns
-)
-
-model = DecisionTreeClassifier(random_state=10)
-model.fit(X_train, y_train)
-y_pred = model.predict(X_test)
-print(f"F1 Score: {f1_score(y_test, y_pred):.4f}")'''
+        "code": "import pandas as pd\nfrom sklearn.impute import SimpleImputer\nfrom sklearn.model_selection import train_test_split\nfrom sklearn.tree import DecisionTreeClassifier\nfrom sklearn.metrics import f1_score\n\ndf = pd.read_csv('credit.csv')\nX = df.drop('default', axis=1)\ny = df['default']\n\nX_train, X_test, y_train, y_test = train_test_split(\n    X, y, test_size=0.3, random_state=10\n)\n\nimputer = SimpleImputer(strategy='mean')\nX_train = pd.DataFrame(\n    imputer.fit_transform(X_train), columns=X.columns\n)\nX_test = pd.DataFrame(\n    imputer.transform(X_test), columns=X.columns\n)\n\nmodel = DecisionTreeClassifier(random_state=10)\nmodel.fit(X_train, y_train)\ny_pred = model.predict(X_test)\nprint(f'F1 Score: {f1_score(y_test, y_pred):.4f}')"
     },
     "6A": {
         "leakage_type": "cv_preprocessing",
         "has_leakage": True,
         "difficulty": "medium",
-        "code": '''import pandas as pd
-from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import cross_val_score
-from sklearn.linear_model import Ridge
-
-df = pd.read_csv("cars.csv")
-X = df.drop("price", axis=1)
-y = df["price"]
-
-scaler = StandardScaler()
-X_scaled = scaler.fit_transform(X)
-
-model = Ridge(alpha=1.0)
-scores = cross_val_score(model, X_scaled, y, cv=5, scoring="r2")
-print(f"Mean R2: {scores.mean():.4f} (+/- {scores.std():.4f})")'''
+        "code": "import pandas as pd\nfrom sklearn.preprocessing import StandardScaler\nfrom sklearn.model_selection import cross_val_score\nfrom sklearn.linear_model import Ridge\n\ndf = pd.read_csv('cars.csv')\nX = df.drop('price', axis=1)\ny = df['price']\n\nscaler = StandardScaler()\nX_scaled = scaler.fit_transform(X)\n\nmodel = Ridge(alpha=1.0)\nscores = cross_val_score(model, X_scaled, y, cv=5, scoring='r2')\nprint(f'Mean R2: {scores.mean():.4f} (+/- {scores.std():.4f})')"
     },
     "6B": {
         "leakage_type": "cv_preprocessing_clean",
         "has_leakage": False,
         "difficulty": "n/a",
-        "code": '''import pandas as pd
-from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import cross_val_score
-from sklearn.pipeline import make_pipeline
-from sklearn.linear_model import Ridge
-
-df = pd.read_csv("cars.csv")
-X = df.drop("price", axis=1)
-y = df["price"]
-
-model = make_pipeline(StandardScaler(), Ridge(alpha=1.0))
-scores = cross_val_score(model, X, y, cv=5, scoring="r2")
-print(f"Mean R2: {scores.mean():.4f} (+/- {scores.std():.4f})")'''
+        "code": "import pandas as pd\nfrom sklearn.preprocessing import StandardScaler\nfrom sklearn.model_selection import cross_val_score\nfrom sklearn.pipeline import make_pipeline\nfrom sklearn.linear_model import Ridge\n\ndf = pd.read_csv('cars.csv')\nX = df.drop('price', axis=1)\ny = df['price']\n\nmodel = make_pipeline(StandardScaler(), Ridge(alpha=1.0))\nscores = cross_val_score(model, X, y, cv=5, scoring='r2')\nprint(f'Mean R2: {scores.mean():.4f} (+/- {scores.std():.4f})')"
     },
     "7A": {
         "leakage_type": "oversampling",
         "has_leakage": True,
         "difficulty": "medium-hard",
-        "code": '''import pandas as pd
-from sklearn.model_selection import train_test_split
-from sklearn.ensemble import GradientBoostingClassifier
-from sklearn.metrics import classification_report
-from imblearn.over_sampling import SMOTE
-
-df = pd.read_csv("fraud.csv")
-X = df.drop("is_fraud", axis=1)
-y = df["is_fraud"]
-
-smote = SMOTE(random_state=42)
-X_resampled, y_resampled = smote.fit_resample(X, y)
-
-X_train, X_test, y_train, y_test = train_test_split(
-    X_resampled, y_resampled, test_size=0.2, random_state=42
-)
-
-model = GradientBoostingClassifier(n_estimators=100, random_state=42)
-model.fit(X_train, y_train)
-y_pred = model.predict(X_test)
-print(classification_report(y_test, y_pred))'''
+        "code": "import pandas as pd\nfrom sklearn.model_selection import train_test_split\nfrom sklearn.ensemble import GradientBoostingClassifier\nfrom sklearn.metrics import classification_report\nfrom imblearn.over_sampling import SMOTE\n\ndf = pd.read_csv('fraud.csv')\nX = df.drop('is_fraud', axis=1)\ny = df['is_fraud']\n\nsmote = SMOTE(random_state=42)\nX_resampled, y_resampled = smote.fit_resample(X, y)\n\nX_train, X_test, y_train, y_test = train_test_split(\n    X_resampled, y_resampled, test_size=0.2, random_state=42\n)\n\nmodel = GradientBoostingClassifier(n_estimators=100, random_state=42)\nmodel.fit(X_train, y_train)\ny_pred = model.predict(X_test)\nprint(classification_report(y_test, y_pred))"
     },
     "7B": {
         "leakage_type": "oversampling_clean",
         "has_leakage": False,
         "difficulty": "n/a",
-        "code": '''import pandas as pd
-from sklearn.model_selection import train_test_split
-from sklearn.ensemble import GradientBoostingClassifier
-from sklearn.metrics import classification_report
-from imblearn.over_sampling import SMOTE
-
-df = pd.read_csv("fraud.csv")
-X = df.drop("is_fraud", axis=1)
-y = df["is_fraud"]
-
-X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.2, random_state=42
-)
-
-smote = SMOTE(random_state=42)
-X_train, y_train = smote.fit_resample(X_train, y_train)
-
-model = GradientBoostingClassifier(n_estimators=100, random_state=42)
-model.fit(X_train, y_train)
-y_pred = model.predict(X_test)
-print(classification_report(y_test, y_pred))'''
+        "code": "import pandas as pd\nfrom sklearn.model_selection import train_test_split\nfrom sklearn.ensemble import GradientBoostingClassifier\nfrom sklearn.metrics import classification_report\nfrom imblearn.over_sampling import SMOTE\n\ndf = pd.read_csv('fraud.csv')\nX = df.drop('is_fraud', axis=1)\ny = df['is_fraud']\n\nX_train, X_test, y_train, y_test = train_test_split(\n    X, y, test_size=0.2, random_state=42\n)\n\nsmote = SMOTE(random_state=42)\nX_train, y_train = smote.fit_resample(X_train, y_train)\n\nmodel = GradientBoostingClassifier(n_estimators=100, random_state=42)\nmodel.fit(X_train, y_train)\ny_pred = model.predict(X_test)\nprint(classification_report(y_test, y_pred))"
     },
     "8A": {
         "leakage_type": "temporal",
         "has_leakage": True,
         "difficulty": "medium-hard",
-        "code": '''import pandas as pd
-from sklearn.model_selection import train_test_split
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.metrics import mean_absolute_error
-
-df = pd.read_csv("stock_prices.csv")
-df["date"] = pd.to_datetime(df["date"])
-df = df.sort_values("date")
-
-features = ["open", "high", "low", "volume", "moving_avg_7"]
-X = df[features]
-y = df["close"]
-
-X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.2, random_state=42
-)
-
-model = RandomForestRegressor(n_estimators=100, random_state=42)
-model.fit(X_train, y_train)
-y_pred = model.predict(X_test)
-print(f"MAE: {mean_absolute_error(y_test, y_pred):.4f}")'''
+        "code": "import pandas as pd\nfrom sklearn.model_selection import train_test_split\nfrom sklearn.ensemble import RandomForestRegressor\nfrom sklearn.metrics import mean_absolute_error\n\ndf = pd.read_csv('stock_prices.csv')\ndf['date'] = pd.to_datetime(df['date'])\ndf = df.sort_values('date')\n\nfeatures = ['open', 'high', 'low', 'volume', 'moving_avg_7']\nX = df[features]\ny = df['close']\n\nX_train, X_test, y_train, y_test = train_test_split(\n    X, y, test_size=0.2, random_state=42\n)\n\nmodel = RandomForestRegressor(n_estimators=100, random_state=42)\nmodel.fit(X_train, y_train)\ny_pred = model.predict(X_test)\nprint(f'MAE: {mean_absolute_error(y_test, y_pred):.4f}')"
     },
     "8B": {
         "leakage_type": "temporal_clean",
         "has_leakage": False,
         "difficulty": "n/a",
-        "code": '''import pandas as pd
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.metrics import mean_absolute_error
-
-df = pd.read_csv("stock_prices.csv")
-df["date"] = pd.to_datetime(df["date"])
-df = df.sort_values("date")
-
-features = ["open", "high", "low", "volume", "moving_avg_7"]
-X = df[features]
-y = df["close"]
-
-split_index = int(len(df) * 0.8)
-X_train, X_test = X.iloc[:split_index], X.iloc[split_index:]
-y_train, y_test = y.iloc[:split_index], y.iloc[split_index:]
-
-model = RandomForestRegressor(n_estimators=100, random_state=42)
-model.fit(X_train, y_train)
-y_pred = model.predict(X_test)
-print(f"MAE: {mean_absolute_error(y_test, y_pred):.4f}")'''
+        "code": "import pandas as pd\nfrom sklearn.ensemble import RandomForestRegressor\nfrom sklearn.metrics import mean_absolute_error\n\ndf = pd.read_csv('stock_prices.csv')\ndf['date'] = pd.to_datetime(df['date'])\ndf = df.sort_values('date')\n\nfeatures = ['open', 'high', 'low', 'volume', 'moving_avg_7']\nX = df[features]\ny = df['close']\n\nsplit_index = int(len(df) * 0.8)\nX_train, X_test = X.iloc[:split_index], X.iloc[split_index:]\ny_train, y_test = y.iloc[:split_index], y.iloc[split_index:]\n\nmodel = RandomForestRegressor(n_estimators=100, random_state=42)\nmodel.fit(X_train, y_train)\ny_pred = model.predict(X_test)\nprint(f'MAE: {mean_absolute_error(y_test, y_pred):.4f}')"
     },
     "9A": {
         "leakage_type": "target_leakage",
         "has_leakage": True,
         "difficulty": "hard",
-        "code": '''import pandas as pd
-from sklearn.model_selection import train_test_split
-from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score
-
-df = pd.read_csv("loans.csv")
-
-features = [
-    "income", "credit_score", "loan_amount",
-    "employment_years", "collection_recovery_fee"
-]
-X = df[features]
-y = df["defaulted"]
-
-X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.2, random_state=42
-)
-
-model = LogisticRegression(max_iter=1000)
-model.fit(X_train, y_train)
-y_pred = model.predict(X_test)
-print(f"Accuracy: {accuracy_score(y_test, y_pred):.4f}")'''
+        "code": "import pandas as pd\nfrom sklearn.model_selection import train_test_split\nfrom sklearn.linear_model import LogisticRegression\nfrom sklearn.metrics import accuracy_score\n\ndf = pd.read_csv('loans.csv')\n\nfeatures = [\n    'income', 'credit_score', 'loan_amount',\n    'employment_years', 'collection_recovery_fee'\n]\nX = df[features]\ny = df['defaulted']\n\nX_train, X_test, y_train, y_test = train_test_split(\n    X, y, test_size=0.2, random_state=42\n)\n\nmodel = LogisticRegression(max_iter=1000)\nmodel.fit(X_train, y_train)\ny_pred = model.predict(X_test)\nprint(f'Accuracy: {accuracy_score(y_test, y_pred):.4f}')"
     },
     "9B": {
         "leakage_type": "target_leakage_clean",
         "has_leakage": False,
         "difficulty": "n/a",
-        "code": '''import pandas as pd
-from sklearn.model_selection import train_test_split
-from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score
-
-df = pd.read_csv("loans.csv")
-
-features = [
-    "income", "credit_score", "loan_amount",
-    "employment_years"
-]
-X = df[features]
-y = df["defaulted"]
-
-X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.2, random_state=42
-)
-
-model = LogisticRegression(max_iter=1000)
-model.fit(X_train, y_train)
-y_pred = model.predict(X_test)
-print(f"Accuracy: {accuracy_score(y_test, y_pred):.4f}")'''
+        "code": "import pandas as pd\nfrom sklearn.model_selection import train_test_split\nfrom sklearn.linear_model import LogisticRegression\nfrom sklearn.metrics import accuracy_score\n\ndf = pd.read_csv('loans.csv')\n\nfeatures = [\n    'income', 'credit_score', 'loan_amount',\n    'employment_years'\n]\nX = df[features]\ny = df['defaulted']\n\nX_train, X_test, y_train, y_test = train_test_split(\n    X, y, test_size=0.2, random_state=42\n)\n\nmodel = LogisticRegression(max_iter=1000)\nmodel.fit(X_train, y_train)\ny_pred = model.predict(X_test)\nprint(f'Accuracy: {accuracy_score(y_test, y_pred):.4f}')"
     },
     "10A": {
         "leakage_type": "target_leakage",
         "has_leakage": True,
         "difficulty": "hard",
-        "code": '''import pandas as pd
-from sklearn.model_selection import train_test_split
-from sklearn.ensemble import GradientBoostingClassifier
-from sklearn.metrics import accuracy_score
-
-df = pd.read_csv("hospital.csv")
-
-features = [
-    "age", "bmi", "blood_pressure", "num_symptoms",
-    "insurance_claim_amount", "discharge_type"
-]
-X = df[features]
-y = df["readmitted_within_30_days"]
-
-X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.2, random_state=42
-)
-
-model = GradientBoostingClassifier(n_estimators=100, random_state=42)
-model.fit(X_train, y_train)
-y_pred = model.predict(X_test)
-print(f"Accuracy: {accuracy_score(y_test, y_pred):.4f}")'''
+        "code": "import pandas as pd\nfrom sklearn.model_selection import train_test_split\nfrom sklearn.ensemble import GradientBoostingClassifier\nfrom sklearn.metrics import accuracy_score\n\ndf = pd.read_csv('hospital.csv')\n\nfeatures = [\n    'age', 'bmi', 'blood_pressure', 'num_symptoms',\n    'insurance_claim_amount', 'discharge_type'\n]\nX = df[features]\ny = df['readmitted_within_30_days']\n\nX_train, X_test, y_train, y_test = train_test_split(\n    X, y, test_size=0.2, random_state=42\n)\n\nmodel = GradientBoostingClassifier(n_estimators=100, random_state=42)\nmodel.fit(X_train, y_train)\ny_pred = model.predict(X_test)\nprint(f'Accuracy: {accuracy_score(y_test, y_pred):.4f}')"
     },
     "10B": {
         "leakage_type": "target_leakage_clean",
         "has_leakage": False,
         "difficulty": "n/a",
-        "code": '''import pandas as pd
-from sklearn.model_selection import train_test_split
-from sklearn.ensemble import GradientBoostingClassifier
-from sklearn.metrics import accuracy_score
-
-df = pd.read_csv("hospital.csv")
-
-features = [
-    "age", "bmi", "blood_pressure", "num_symptoms"
-]
-X = df[features]
-y = df["readmitted_within_30_days"]
-
-X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.2, random_state=42
-)
-
-model = GradientBoostingClassifier(n_estimators=100, random_state=42)
-model.fit(X_train, y_train)
-y_pred = model.predict(X_test)
-print(f"Accuracy: {accuracy_score(y_test, y_pred):.4f}")'''
+        "code": "import pandas as pd\nfrom sklearn.model_selection import train_test_split\nfrom sklearn.ensemble import GradientBoostingClassifier\nfrom sklearn.metrics import accuracy_score\n\ndf = pd.read_csv('hospital.csv')\n\nfeatures = [\n    'age', 'bmi', 'blood_pressure', 'num_symptoms'\n]\nX = df[features]\ny = df['readmitted_within_30_days']\n\nX_train, X_test, y_train, y_test = train_test_split(\n    X, y, test_size=0.2, random_state=42\n)\n\nmodel = GradientBoostingClassifier(n_estimators=100, random_state=42)\nmodel.fit(X_train, y_train)\ny_pred = model.predict(X_test)\nprint(f'Accuracy: {accuracy_score(y_test, y_pred):.4f}')"
     },
 }
 
-# ============================================================
-# API CALL FUNCTIONS
-# ============================================================
+# --- Initialization of API Clients ---
+# We initialize them globally to avoid recreating clients on every loop iteration.
 
-def call_openai(prompt, model_id):
-    """Call OpenAI API (GPT-4o-mini)"""
+openai_client = None
+if API_KEYS["openai"]:
     from openai import OpenAI
-    client = OpenAI(api_key=API_KEYS["openai"])
-    
-    response = client.chat.completions.create(
+    openai_client = OpenAI(api_key=API_KEYS["openai"])
+
+anthropic_client = None
+if API_KEYS["anthropic"]:
+    import anthropic
+    anthropic_client = anthropic.Anthropic(api_key=API_KEYS["anthropic"])
+
+gemini_client = None
+if API_KEYS["gemini"]:
+    from google import genai
+    gemini_client = genai.Client(api_key=API_KEYS["gemini"])
+
+
+def call_openai(prompt: str, model_id: str) -> str:
+    """Send prompt to OpenAI models."""
+    response = openai_client.chat.completions.create(
         model=model_id,
         messages=[{"role": "user", "content": prompt}],
-        temperature=1.0,  # default
+        temperature=1.0,
         max_tokens=2000,
     )
     return response.choices[0].message.content
 
 
-def call_anthropic(prompt, model_id):
-    """Call Anthropic API (Claude)"""
-    import anthropic
-    client = anthropic.Anthropic(api_key=API_KEYS["anthropic"])
-    
-    response = client.messages.create(
+def call_anthropic(prompt: str, model_id: str) -> str:
+    """Send prompt to Anthropic Claude models."""
+    response = anthropic_client.messages.create(
         model=model_id,
         max_tokens=2000,
         messages=[{"role": "user", "content": prompt}],
@@ -645,11 +222,9 @@ def call_anthropic(prompt, model_id):
     return response.content[0].text
 
 
-def call_gemini(prompt, model_id):
-    """New 2026 Google GenAI API Call"""
-    from google import genai
-    client = genai.Client(api_key=API_KEYS["gemini"])
-    response = client.models.generate_content(
+def call_gemini(prompt: str, model_id: str) -> str:
+    """Send prompt to Google Gemini models."""
+    response = gemini_client.models.generate_content(
         model=model_id,
         contents=prompt
     )
@@ -662,58 +237,38 @@ API_CALLERS = {
     "gemini": call_gemini,
 }
 
-# ============================================================
-# CONFIGURATION
-# ============================================================
-NUM_RUNS = 3  # Number of times to repeat the full experiment for validity
 
-
-# ============================================================
-# MAIN EXPERIMENT RUNNER
-# ============================================================
-
-def run_experiment(run_number):
-    """Run all 120 queries for a single run and save results."""
-
-    run_dir = f"results/run_{run_number}"
-    Path(f"{run_dir}/raw_responses").mkdir(parents=True, exist_ok=True)
-
-    prompts = {
-        "generic": PROMPT_GENERIC,
-        "specific": PROMPT_SPECIFIC,
-    }
+def run_experiment(run_number: int) -> List[Dict[str, Any]]:
+    """
+    Executes all permutations of snippets, prompts, and models for a single run.
+    """
+    run_dir = Path(f"results/run_{run_number}")
+    (run_dir / "raw_responses").mkdir(parents=True, exist_ok=True)
 
     all_results = []
-    total = len(SNIPPETS) * len(prompts) * len(MODELS)
-    current = 0
+    total_queries = len(SNIPPETS) * len(PROMPTS) * len(MODELS)
+    current_query = 0
 
-    print(f"\n{'='*60}")
-    print(f"STARTING RUN {run_number} of {NUM_RUNS}  ({total} queries)")
-    print(f"{'='*60}")
+    logger.info(f"Starting Run {run_number} ({total_queries} queries total)")
 
     for snippet_id, snippet_data in SNIPPETS.items():
-        for prompt_type, prompt_template in prompts.items():
-
-            # Build the full prompt with the code inserted
+        for prompt_type, prompt_template in PROMPTS.items():
             full_prompt = prompt_template.format(code=snippet_data["code"])
 
             for provider, model_config in MODELS.items():
-                current += 1
-                print(f"  Run {run_number} [{current}/{total}] Snippet {snippet_id} | "
-                      f"{prompt_type} | {model_config['name']}...", end=" ")
+                current_query += 1
+                logger.info(f"[Run {run_number} | {current_query}/{total_queries}] Querying {model_config['name']} for {snippet_id} ({prompt_type})...")
 
                 try:
                     provider_key = model_config["provider"]
                     caller = API_CALLERS[provider_key]
                     response_text = caller(full_prompt, model_config["model_id"])
                     status = "success"
-                    print("OK")
                 except Exception as e:
                     response_text = f"ERROR: {str(e)}"
                     status = "error"
-                    print(f"FAILED: {e}")
+                    logger.error(f"Failed query on {model_config['name']}: {e}")
 
-                # Build result record
                 result = {
                     "run_number": run_number,
                     "snippet_id": snippet_id,
@@ -730,52 +285,46 @@ def run_experiment(run_number):
                 }
                 all_results.append(result)
 
-                # Save individual response as JSON backup
+                # Save raw JSON backup
                 filename = f"{snippet_id}_{prompt_type}_{provider}.json"
-                with open(f"{run_dir}/raw_responses/{filename}", "w") as f:
+                with open(run_dir / "raw_responses" / filename, "w", encoding="utf-8") as f:
                     json.dump(result, f, indent=2)
 
-               # Rate limiting — only sleep long for Gemini's free tier
+                # Rate limiting logic
                 if model_config["provider"] == "gemini":
-                    time.sleep(4.1)  # 60 seconds / 15 requests = 4 seconds 
+                    time.sleep(4.1) 
                 else:
-                    time.sleep(0.5)  # A tiny half-second pause is plenty for OpenAI/Anthropic
-    # --------------------------------------------------------
-    # Save this run's CSVs
-    # --------------------------------------------------------
-    csv_fields = [
-        "run_number", "snippet_id", "leakage_type", "has_leakage_ground_truth",
-        "difficulty", "prompt_type", "provider", "model_name",
-        "model_id", "status", "response", "timestamp"
-    ]
+                    time.sleep(0.5) 
 
-    with open(f"{run_dir}/responses.csv", "w", newline="", encoding="utf-8") as f:
+    # Save CSV for this specific run
+    csv_fields = list(all_results[0].keys())
+    with open(run_dir / "responses.csv", "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=csv_fields)
         writer.writeheader()
         writer.writerows(all_results)
 
-    print(f"\n  Run {run_number} complete — saved to {run_dir}/responses.csv")
-    print(f"  Successful: {sum(1 for r in all_results if r['status'] == 'success')} / {total}")
+    success_count = sum(1 for r in all_results if r['status'] == 'success')
+    logger.info(f"Run {run_number} complete. {success_count}/{total_queries} succeeded.")
 
     return all_results
 
 
-def combine_runs(all_runs_results):
-    """Combine all runs into one CSV and produce a grading sheet."""
+def combine_runs(all_runs_results: List[Dict[str, Any]]):
+    """
+    Merges data from all experimental runs and generates a grading template.
+    """
+    results_dir = Path("results")
+    results_dir.mkdir(parents=True, exist_ok=True)
 
-    Path("results").mkdir(parents=True, exist_ok=True)
+    # Output merged log
+    if all_runs_results:
+        csv_fields = list(all_runs_results[0].keys())
+        with open(results_dir / "all_runs_combined.csv", "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=csv_fields)
+            writer.writeheader()
+            writer.writerows(all_runs_results)
 
-    csv_fields = [
-        "run_number", "snippet_id", "leakage_type", "has_leakage_ground_truth",
-        "difficulty", "prompt_type", "provider", "model_name",
-        "model_id", "status", "response", "timestamp"
-    ]
-
-    with open("results/all_runs_combined.csv", "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=csv_fields)
-        writer.writeheader()
-        writer.writerows(all_runs_results)
-
+    # Generate manual grading sheet
     grading_fields = [
         "run_number", "snippet_id", "leakage_type", "has_leakage_ground_truth",
         "difficulty", "prompt_type", "model_name",
@@ -783,7 +332,7 @@ def combine_runs(all_runs_results):
         "explanation_quality", "notes"
     ]
 
-    with open("results/grading_sheet.csv", "w", newline="", encoding="utf-8") as f:
+    with open(results_dir / "grading_sheet.csv", "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=grading_fields)
         writer.writeheader()
         for r in all_runs_results:
@@ -795,61 +344,44 @@ def combine_runs(all_runs_results):
                 "difficulty": r["difficulty"],
                 "prompt_type": r["prompt_type"],
                 "model_name": r["model_name"],
-                "llm_detected_leakage": "",   # YOU FILL THIS
-                "detection_result": "",        # TP/TN/FP/FN
-                "explanation_quality": "",     # Correct/Partial/Incorrect/Hallucinated
-                "notes": "",                   # Your observations
+                "llm_detected_leakage": "",   
+                "detection_result": "",        
+                "explanation_quality": "",     
+                "notes": "",                   
             })
 
-    total = len(all_runs_results)
-    print(f"\n{'='*60}")
-    print(f"ALL {NUM_RUNS} RUNS COMPLETE")
-    print(f"{'='*60}")
-    print(f"Total queries across all runs: {total}")
-    print(f"Successful: {sum(1 for r in all_runs_results if r['status'] == 'success')}")
-    print(f"Failed:     {sum(1 for r in all_runs_results if r['status'] == 'error')}")
-    print(f"\nOutput files:")
-    print(f"  results/run_1/responses.csv    — run 1 responses")
-    print(f"  results/run_2/responses.csv    — run 2 responses")
-    print(f"  results/run_3/responses.csv    — run 3 responses")
-    print(f"  results/all_runs_combined.csv  — all {total} rows combined")
-    print(f"  results/grading_sheet.csv      — empty grading columns (for you)")
-    print(f"\nNEXT STEP: Open grading_sheet.csv and fill in the 3 empty columns")
-    print(f"by reading responses in all_runs_combined.csv")
+    logger.info("Generated all_runs_combined.csv and grading_sheet.csv")
 
 
-# ============================================================
-# RUN
-# ============================================================
-if __name__ == "__main__":
-    # Check for API keys
-    missing = [k for k, v in API_KEYS.items() if not v]
-    if missing:
-        print(f"WARNING: Missing API keys for: {', '.join(missing)}")
-        print("Set them as environment variables or paste into the script.")
-        print("Example: export OPENAI_API_KEY='sk-...'")
-        print()
+def main():
+    parser = argparse.ArgumentParser(description="Run LLM Data Leakage Detection Experiment")
+    parser.add_argument("--runs", type=int, default=3, help="Number of experimental runs (default: 3)")
+    args = parser.parse_args()
 
-        # Ask if user wants to continue with available APIs only
+    # Pre-flight API check
+    missing_keys = [k for k, v in API_KEYS.items() if not v]
+    if missing_keys:
+        logger.warning(f"Missing API keys for: {', '.join(missing_keys)}")
+        logger.warning("Make sure to set them as environment variables (e.g., export OPENAI_API_KEY='...')")
+        
         available = [k for k, v in API_KEYS.items() if v]
         if not available:
-            print("No API keys found. Exiting.")
+            logger.error("No API keys found. Exiting.")
             exit(1)
+            
+        logger.info(f"Continuing with available APIs only: {', '.join(available)}")
+        for m in missing_keys:
+            if m in MODELS:
+                del MODELS[m]
 
-        print(f"Available APIs: {', '.join(available)}")
-        resp = input("Continue with available APIs only? (y/n): ")
-        if resp.lower() != "y":
-            exit(0)
-
-        # Remove unavailable models
-        for m in missing:
-            del MODELS[m]
-
-    # Run the experiment NUM_RUNS times and collect all results
     all_runs_results = []
-    for run_num in range(1, NUM_RUNS + 1):
-        run_results = run_experiment(run_num)
-        all_runs_results.extend(run_results)
+    for run_num in range(1, args.runs + 1):
+        results = run_experiment(run_num)
+        all_runs_results.extend(results)
 
-    # Combine all runs into final output files
     combine_runs(all_runs_results)
+    logger.info("Experiment finished successfully.")
+
+
+if __name__ == "__main__":
+    main()
